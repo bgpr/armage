@@ -3,43 +3,34 @@ package agent
 import (
 	"context"
 	"fmt"
+
+	"github.com/user/armage/pkg/provider"
 )
-
-// LLM is the interface for different AI providers (OpenRouter, Gemini, etc.)
-type LLM interface {
-	Chat(ctx context.Context, messages []Message) (string, error)
-}
-
-// Message represents a single turn in the conversation.
-type Message struct {
-	Role    string // "user", "assistant", "system"
-	Content string
-}
 
 // Agent is the core orchestrator.
 type Agent struct {
-	LLM      LLM
+	LLM      provider.LLM
 	Registry *Registry
-	History  []Message
+	History  []provider.Message
 }
 
-func New(llm LLM, registry *Registry) *Agent {
+func New(llm provider.LLM, registry *Registry) *Agent {
 	return &Agent{
 		LLM:      llm,
 		Registry: registry,
-		History:  []Message{},
+		History:  []provider.Message{},
 	}
 }
 
 // AddSystemPrompt sets the initial context.
 func (a *Agent) AddSystemPrompt(prompt string) {
-	a.History = append(a.History, Message{Role: "system", Content: prompt})
+	a.History = append(a.History, provider.Message{Role: "system", Content: prompt})
 }
 
 // Step performs a single ReAct turn.
 func (a *Agent) Step(ctx context.Context, input string) (string, error) {
 	if input != "" {
-		a.History = append(a.History, Message{Role: "user", Content: input})
+		a.History = append(a.History, provider.Message{Role: "user", Content: input})
 	}
 
 	// 1. Get LLM Response
@@ -47,7 +38,7 @@ func (a *Agent) Step(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("LLM error: %w", err)
 	}
-	a.History = append(a.History, Message{Role: "assistant", Content: response})
+	a.History = append(a.History, provider.Message{Role: "assistant", Content: response})
 
 	// 2. Parse Response
 	thought, toolName, toolArgs, err := Parse(response)
@@ -60,7 +51,7 @@ func (a *Agent) Step(ctx context.Context, input string) (string, error) {
 		tool, exists := a.Registry.Get(toolName)
 		if !exists {
 			observation := fmt.Sprintf("Error: Tool '%s' not found.", toolName)
-			a.History = append(a.History, Message{Role: "user", Content: "Observation: " + observation})
+			a.History = append(a.History, provider.Message{Role: "user", Content: "Observation: " + observation})
 			return thought, nil
 		}
 
@@ -68,7 +59,7 @@ func (a *Agent) Step(ctx context.Context, input string) (string, error) {
 		if err != nil {
 			observation = fmt.Sprintf("Error executing tool: %v", err)
 		}
-		a.History = append(a.History, Message{Role: "user", Content: "Observation: " + observation})
+		a.History = append(a.History, provider.Message{Role: "user", Content: "Observation: " + observation})
 	}
 
 	return thought, nil

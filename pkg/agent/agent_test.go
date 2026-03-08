@@ -3,13 +3,15 @@ package agent
 import (
 	"context"
 	"testing"
+
+	"github.com/user/armage/pkg/provider"
 )
 
 type MockLLM struct {
 	Response string
 }
 
-func (m *MockLLM) Chat(ctx context.Context, messages []Message) (string, error) {
+func (m *MockLLM) Chat(ctx context.Context, messages []provider.Message) (string, error) {
 	return m.Response, nil
 }
 
