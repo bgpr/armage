@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/user/armage/pkg/provider"
 )
@@ -14,12 +16,40 @@ type Agent struct {
 	History  []provider.Message
 }
 
+type State struct {
+	History []provider.Message `json:"history"`
+}
+
 func New(llm provider.LLM, registry *Registry) *Agent {
 	return &Agent{
 		LLM:      llm,
 		Registry: registry,
 		History:  []provider.Message{},
 	}
+}
+
+// Save persists the agent's history to disk.
+func (a *Agent) Save(path string) error {
+	state := State{History: a.History}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// Load restores the agent's history from disk.
+func (a *Agent) Load(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var state State
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	a.History = state.History
+	return nil
 }
 
 // AddSystemPrompt sets the initial context.
