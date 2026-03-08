@@ -22,9 +22,21 @@ func main() {
 	// 2. Setup Provider and Agent
 	llm := provider.NewOpenRouter(apiKey, "google/gemini-2.0-flash-001")
 	reg := agent.NewRegistry()
+	reg.Register(&agent.ShellTool{}) // Register the shell tool
 	
 	a := agent.New(llm, reg)
-	a.AddSystemPrompt("You are Armage, an expert coding agent for Termux on Android. Follow the ReAct pattern: Thought then Action.")
+	a.AddSystemPrompt(`You are Armage, an expert coding agent for Termux on Android. 
+You follow the ReAct pattern: 
+Thought: [Your reasoning here]
+Action: [ToolName]([Arguments])
+
+Available Tools:
+- shell: Executes a shell command and returns the output. Use it for ls, cat, grep, etc.
+
+Example:
+Thought: I need to see what's in the current directory.
+Action: shell("ls -F")
+`)
 
 	// Check if we have an existing state to resume
 	statePath := ".armage_state.json"

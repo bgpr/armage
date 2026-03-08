@@ -65,7 +65,9 @@ func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, erro
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		var errBody bytes.Buffer
+		errBody.ReadFrom(resp.Body)
+		return "", fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, errBody.String())
 	}
 
 	var orResp openRouterResponse
