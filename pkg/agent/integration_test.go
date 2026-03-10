@@ -28,6 +28,7 @@ func TestIntegrationFullCycle(t *testing.T) {
 	reg.Register(&WriteTool{})
 	reg.Register(&SearchTool{})
 	reg.Register(&DiffTool{})
+	reg.Register(&ListDirTool{})
 
 	a := New(llm, reg)
 	a.AddSystemPrompt(`You are Armage, an expert coding agent for Termux. 
@@ -37,14 +38,15 @@ Action: ToolName([JSON Arguments])
 
 Available Tools:
 - shell: Executes a shell command and returns the output.
+- list_dir: {"path": "...", "depth": 1}. Lists files/directories.
 - read_file: {"path": "...", "start": 1, "end": 10}. Reads a file with line numbers.
 - write_file: {"path": "...", "content": "..."}. Writes content to a file atomically.
 - grep_search: {"pattern": "...", "path": "..."}. Searches for a pattern in files.
 - edit_file_diff: {"path": "...", "find": "...", "replace": "..."}. Surgically updates a file. Provide the EXACT 'find' block (from the file, without line numbers) and the 'replace' block.
 
 Example:
-Thought: I need to find where a function is defined.
-Action: grep_search({"pattern": "func Hello", "path": "pkg/"})
+Thought: I need to see the project structure.
+Action: list_dir({"path": ".", "depth": 1})
 `)
 
 	fmt.Printf("\n--- Multi-Step Search & Edit Integration Test ---\n")
@@ -52,12 +54,12 @@ Action: grep_search({"pattern": "func Hello", "path": "pkg/"})
 	// 2. Task: Search, Read, then Edit a specific file.
 	ctx := context.Background()
 	// We'll target tools_test.go which contains 'MockTool' and the comment '// returns the input'
-	task := "Search for 'MockTool' in pkg/agent. Read tools_test.go, then update it so the comment '// returns the input' becomes '// returns the raw input'. Use edit_file_diff for the change. Finally, search for 'raw input' to confirm."
+	task := "Explore the project structure with list_dir. Then search for 'MockTool' in pkg/agent. Read tools_test.go, then update it so the comment '// returns the input' becomes '// returns the raw input'. Use edit_file_diff for the change. Finally, search for 'raw input' to confirm."
 	
 	fmt.Printf("[TASK]: %s\n", task)
 
-	// Up to 5 steps for this complex navigation task
-	for i := 1; i <= 5; i++ {
+	// Up to 6 steps for this complex navigation task
+	for i := 1; i <= 6; i++ {
 		t.Logf("\n--- STEP %d ---", i)
 		thought, err := a.Step(ctx, task)
 		if err != nil {
