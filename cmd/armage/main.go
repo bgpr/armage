@@ -12,30 +12,42 @@ import (
 )
 
 func main() {
-	// 1. Get API Key from Env
+	// 1. Get API Key and Model from Env
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
 		fmt.Println("Error: OPENROUTER_API_KEY environment variable is not set.")
 		os.Exit(1)
 	}
+	model := os.Getenv("OPENROUTER_MODEL")
+	if model == "" {
+		model = "google/gemma-3-12b-it" 
+	}
 
 	// 2. Setup Provider and Agent
-	llm := provider.NewOpenRouter(apiKey, "google/gemini-2.0-flash-001")
+	llm := provider.NewOpenRouter(apiKey, model)
 	reg := agent.NewRegistry()
-	reg.Register(&agent.ShellTool{}) // Register the shell tool
+	reg.Register(&agent.ShellTool{})      // Register the shell tool
+	reg.Register(&agent.ReadTool{})       // Register surgical read
+	reg.Register(&agent.SearchTool{})     // Register grep search
+	reg.Register(&agent.WriteTool{})      // Register atomic write
+	reg.Register(&agent.DiffTool{})       // Register surgical edit (Search/Replace)
 	
 	a := agent.New(llm, reg)
 	a.AddSystemPrompt(`You are Armage, an expert coding agent for Termux on Android. 
-You follow the ReAct pattern: 
+You follow the ReAct pattern strictly: 
 Thought: [Your reasoning here]
-Action: [ToolName]([Arguments])
+Action: ToolName([JSON Arguments])
 
 Available Tools:
-- shell: Executes a shell command and returns the output. Use it for ls, cat, grep, etc.
+- shell: Executes a shell command and returns the output. Use it for complex system operations.
+- read_file: {"path": "...", "start": 1, "end": 10}. Reads a file with line numbers for context.
+- grep_search: {"pattern": "...", "path": "..."}. Recursively searches for a pattern in files.
+- edit_file_diff: {"path": "...", "find": "...", "replace": "..."}. Surgically updates a file. Provide the EXACT 'find' block (without line numbers) and the 'replace' block.
+- write_file: {"path": "...", "content": "..."}. Writes content to a file atomically. Use this for new or small files.
 
 Example:
-Thought: I need to see what's in the current directory.
-Action: shell("ls -F")
+Thought: I need to find where a function is defined.
+Action: grep_search({"pattern": "func Hello", "path": "pkg/"})
 `)
 
 	// Check if we have an existing state to resume
