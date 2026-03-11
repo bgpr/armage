@@ -24,7 +24,6 @@ func (s *SearchTool) Description() string {
 func (s *SearchTool) Execute(ctx context.Context, args string) (string, error) {
 	var a searchArgs
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
-		// Fallback for simple "pattern" call
 		a.Pattern = args
 		a.Path = "."
 	}
@@ -33,22 +32,32 @@ func (s *SearchTool) Execute(ctx context.Context, args string) (string, error) {
 		a.Path = "."
 	}
 
-	// 1. Pre-check path existence for better error messages
 	if _, err := os.Stat(a.Path); os.IsNotExist(err) {
-		return "", fmt.Errorf("search path %s does not exist. The current directory is where the test/agent is running", a.Path)
+		return "", fmt.Errorf("search path %s does not exist", a.Path)
 	}
 
-	// 2. Run grep -rnIE (recursive, line numbers, ignore binary, extended regex)
-	cmd := exec.CommandContext(ctx, "grep", "-rnIE", a.Pattern, a.Path)
-	
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// grep returns exit code 1 if no matches are found. In our context, this is a valid result.
+	// 1. Try ripgrep (rg) first - Faster and respects .gitignore
+	if _, err := exec.LookPath("rg"); err == nil {
+		cmd := exec.CommandContext(ctx, "rg", "-n", "--column", "--no-heading", a.Pattern, a.Path)
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			return string(output), nil
+		}
+		// If rg returns 1, no matches found
 		if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 1 {
 			return "No matches found.", nil
 		}
-		// Any other error is a real failure (e.g., path doesn't exist)
-		return string(output), fmt.Errorf("grep failed: %w", err)
+		// Any other error, we fall back to grep
+	}
+
+	// 2. Fallback to standard grep
+	cmd := exec.CommandContext(ctx, "grep", "-rnIE", a.Pattern, a.Path)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 1 {
+			return "No matches found.", nil
+		}
+		return string(output), fmt.Errorf("search failed: %w", err)
 	}
 
 	return string(output), nil
