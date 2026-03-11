@@ -30,6 +30,7 @@ func TestIntegrationFullCycle(t *testing.T) {
 	reg.Register(&DiffTool{})
 	reg.Register(&ListDirTool{})
 	reg.Register(&SymbolsTool{})
+	reg.Register(&ApplyPatchTool{})
 
 	a := New(llm, reg)
 	a.RequireApproval = true
@@ -45,19 +46,20 @@ Available Tools:
 - read_file: {"path": "...", "start": 1, "end": 10}. Reads a file with line numbers.
 - write_file: {"path": "...", "content": "..."}. Writes content to a file atomically.
 - grep_search: {"pattern": "...", "path": "..."}. Searches for a pattern in files.
-- edit_file_diff: {"path": "...", "find": "...", "replace": "..."}. Surgically updates a file. Provide the EXACT 'find' block (from the file, without line numbers) and the 'replace' block.
+- edit_file_diff: {"path": "...", "find": "...", "replace": "..."}. Surgically updates a file.
+- apply_patch: {"path": "...", "patch": "..."}. Applies a standard unified diff (patch).
 
 Example:
-Thought: I need to see the project structure.
-Action: list_dir({"path": ".", "depth": 1})
+Thought: I need to apply a complex multi-line change.
+Action: apply_patch({"path": "file.go", "patch": "--- file.go\n+++\n..."})
 `)
 
 	fmt.Printf("\n--- Multi-Step Search & Edit Integration Test ---\n")
 
 	// 2. Task: Search, Read, then Edit a specific file.
 	ctx := context.Background()
-	// We'll target tools_test.go which contains 'MockTool' and the comment '// returns the input'
-	task := "Explore the project structure with list_dir. Then search for 'MockTool' in pkg/agent. Use get_symbols to map tools_test.go, then update it so the comment '// returns the input' becomes '// returns the raw input'. Use edit_file_diff for the change. Finally, search for 'raw input' to confirm."
+	// We'll target tools_test.go which contains 'MockTool' and the description string
+	task := "Explore the project structure with list_dir. Then search for 'MockTool' in pkg/agent. Use get_symbols to map tools_test.go, then update it so the return string 'returns the input' becomes 'returns the raw input'. Use apply_patch for the change. Finally, search for 'raw input' to confirm."
 	
 	fmt.Printf("[TASK]: %s\n", task)
 

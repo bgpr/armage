@@ -31,6 +31,7 @@ To reach "Elite" status, the agent needs the following high-fidelity tools:
 3.  **`apply_patch` (Advanced Edits)**
     - *Goal*: Support Standard Unified Diffs for complex, multi-line refactors.
     - *Constraint*: More robust than Find/Replace for overlapping blocks.
+    - *Status*: ✅ **Complete** (uses native `patch` command)
 
 ---
 

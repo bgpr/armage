@@ -33,6 +33,7 @@ func main() {
 	reg.Register(&agent.DiffTool{})       // Register surgical edit (Search/Replace)
 	reg.Register(&agent.ListDirTool{})    // Register project navigation
 	reg.Register(&agent.SymbolsTool{})    // Register code mapping
+	reg.Register(&agent.ApplyPatchTool{}) // Register robust multi-line edits
 	
 	a := agent.New(llm, reg)
 	a.RequireApproval = true // Enable Safety Governor
@@ -47,12 +48,13 @@ Available Tools:
 - get_symbols: {"path": "..."}. Lists functions, classes, and types in a file. Very efficient for mapping out code.
 - read_file: {"path": "...", "start": 1, "end": 10}. Reads a file with line numbers for context.
 - grep_search: {"pattern": "...", "path": "..."}. Recursively searches for a pattern in files.
-- edit_file_diff: {"path": "...", "find": "...", "replace": "..."}. Surgically updates a file. Provide the EXACT 'find' block (without line numbers) and the 'replace' block.
+- edit_file_diff: {"path": "...", "find": "...", "replace": "..."}. Surgically updates a file. Use for small, single-turn changes.
+- apply_patch: {"path": "...", "patch": "..."}. Applies a standard unified diff (patch). Use for complex, multi-line refactors.
 - write_file: {"path": "...", "content": "..."}. Writes content to a file atomically. Use this for new or small files.
 
 Example:
-Thought: I need to see what functions are in this file.
-Action: get_symbols({"path": "pkg/agent/agent.go"})
+Thought: I need to apply a complex multi-line change.
+Action: apply_patch({"path": "pkg/agent/agent.go", "patch": "--- pkg/agent/agent.go\n+++\n..."})
 `)
 
 	// Check if we have an existing state to resume
