@@ -31,6 +31,7 @@ func TestIntegrationFullCycle(t *testing.T) {
 	reg.Register(&ListDirTool{})
 
 	a := New(llm, reg)
+	a.RequireApproval = true
 	a.AddSystemPrompt(`You are Armage, an expert coding agent for Termux. 
 Follow the ReAct pattern strictly: 
 Thought: [Your reasoning]
@@ -61,10 +62,21 @@ Action: list_dir({"path": ".", "depth": 1})
 	// Up to 6 steps for this complex navigation task
 	for i := 1; i <= 6; i++ {
 		t.Logf("\n--- STEP %d ---", i)
-		thought, err := a.Step(ctx, task)
+		res, err := a.Step(ctx, task)
 		if err != nil {
 			t.Fatalf("Step %d failed: %v", i, err)
 		}
+
+		// Handle Safety Governor approval automatically in the test
+		if res.Status == StatusPending {
+			t.Logf("[APPROVAL REQUIRED]: %s(%s)", res.ToolName, res.ToolArgs)
+			res, err = a.Approve(ctx)
+			if err != nil {
+				t.Fatalf("Approval failed: %v", err)
+			}
+		}
+
+		thought := res.Thought
 
 		// Print the latest turn
 		lastIdx := len(a.History) - 1
@@ -126,28 +138,79 @@ func TestReActMultiStep(t *testing.T) {
 	a := New(llm, reg)
 
 	// Step 1: user "Start" -> assistant "whoami" -> user "Observation"
-	thought, err := a.Step(context.Background(), "Start")
+	res, err := a.Step(context.Background(), "Start")
 	if err != nil {
 		t.Fatalf("Step 1 failed: %v", err)
 	}
-	if thought != "I need to check the current user." {
-		t.Errorf("Step 1 thought mismatch: %s", thought)
+	if res.Thought != "I need to check the current user." {
+		t.Errorf("Step 1 thought mismatch: %s", res.Thought)
 	}
-	// History: user(Start), assistant(whoami), user(Observation)
+	// History: 
+	// 1. user(Start)
+	// 2. assistant(Thought/Action)
+	// 3. user(Observation)
 	if len(a.History) != 3 {
 		t.Fatalf("Step 1 history length mismatch: %d", len(a.History))
 	}
 
 	// Step 2: assistant "ls" -> user "Observation"
-	thought, err = a.Step(context.Background(), "")
+	res, err = a.Step(context.Background(), "")
 	if err != nil {
 		t.Fatalf("Step 2 failed: %v", err)
 	}
-	if thought != "The user is root. Now I'll list files." {
-		t.Errorf("Step 2 thought mismatch: %s", thought)
+	if res.Thought != "The user is root. Now I'll list files." {
+		t.Errorf("Step 2 thought mismatch: %s", res.Thought)
 	}
-	// History: ... user(Observation from whoami), assistant(ls), user(Observation from ls)
+	// History: 
+	// 1-3. (from Step 1)
+	// 4. assistant(Thought/Action)
+	// 5. user(Observation)
 	if len(a.History) != 5 {
 		t.Fatalf("Step 2 history length mismatch: %d", len(a.History))
+	}
+}
+
+func TestIntegrationApproval(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&ShellTool{})
+
+	// LLM wants to run a shell command
+	llm := &MockMultiStepLLM{
+		Responses: []string{
+			"Thought: I will check the user.\nAction: shell(\"whoami\")",
+		},
+	}
+
+	a := New(llm, reg)
+	a.RequireApproval = true
+
+	// 1. Initial Step - Should be Pending
+	res, err := a.Step(context.Background(), "Check user")
+	if err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+
+	if res.Status != StatusPending {
+		t.Errorf("Expected status Pending, got: %v", res.Status)
+	}
+	if len(a.History) != 2 {
+		t.Errorf("Expected history length 2 (User + Assistant), got: %d", len(a.History))
+	}
+
+	// 2. Approve Step - Should execute and return Running
+	res, err = a.Approve(context.Background())
+	if err != nil {
+		t.Fatalf("Approve failed: %v", err)
+	}
+
+	if res.Status != StatusRunning {
+		t.Errorf("Expected status Running, got: %v", res.Status)
+	}
+	if len(a.History) != 3 {
+		t.Errorf("Expected history length 3 (User + Assistant + Observation), got: %d", len(a.History))
+	}
+	
+	if !strings.Contains(a.History[2].Content, "Observation:") {
+		t.Errorf("Expected observation in history, got: %s", a.History[2].Content)
 	}
 }

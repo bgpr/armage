@@ -34,7 +34,7 @@ To reach "Elite" status, the agent needs the following high-fidelity tools:
 ---
 
 ## 🛡️ The "Governor" & UI (Phase 3)
-- [ ] **Safety Protocol**: Implement a `PendingAction` state in `Agent.Step` to force manual approval (`[Y/n]`) for destructive actions.
+- [x] **Safety Protocol**: Implement a `PendingAction` state in `Agent.Step` to force manual approval (`[Y/n]`) for destructive actions.
 - [ ] **Bubble Tea TUI**:
     - [ ] Real-time "Thinking..." spinners.
     - [ ] Markdown rendering for "Thoughts" and code blocks.

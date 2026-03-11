@@ -34,6 +34,7 @@ func main() {
 	reg.Register(&agent.ListDirTool{})    // Register project navigation
 	
 	a := agent.New(llm, reg)
+	a.RequireApproval = true // Enable Safety Governor
 	a.AddSystemPrompt(`You are Armage, an expert coding agent for Termux on Android. 
 You follow the ReAct pattern strictly: 
 Thought: [Your reasoning here]
@@ -82,14 +83,30 @@ Action: list_dir({"path": ".", "depth": 1})
 		}
 
 		fmt.Println("Thinking...")
-		thought, err := a.Step(ctx, input)
+		res, err := a.Step(ctx, input)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
 		
-		if thought != "" {
-			fmt.Printf("\nThought: %s\n", thought)
+		if res.Thought != "" {
+			fmt.Printf("\nThought: %s\n", res.Thought)
+		}
+
+		if res.Status == agent.StatusPending {
+			fmt.Printf("\nAction: %s(%s)\n", res.ToolName, res.ToolArgs)
+			fmt.Print("Approve? [y/N]: ")
+			confirm, _ := reader.ReadString('\n')
+			if strings.ToLower(strings.TrimSpace(confirm)) == "y" {
+				res, err = a.Approve(ctx)
+				if err != nil {
+					fmt.Printf("Approval Error: %v\n", err)
+				}
+			} else {
+				fmt.Println("Action cancelled.")
+				// Record cancellation in history so agent knows
+				a.History = append(a.History, provider.Message{Role: "user", Content: "Observation: User cancelled the action."})
+			}
 		}
 
 		// Save state after every step for resilience

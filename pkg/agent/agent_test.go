@@ -25,9 +25,13 @@ Action: echo("hello")`,
 	}
 
 	a := New(llm, reg)
-	_, err := a.Step(context.Background(), "Start")
+	res, err := a.Step(context.Background(), "Start")
 	if err != nil {
 		t.Fatalf("Step failed: %v", err)
+	}
+
+	if res.Thought != "I will echo hello." {
+		t.Errorf("Expected thought 'I will echo hello.', got: %s", res.Thought)
 	}
 
 	// Verify history
