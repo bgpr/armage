@@ -11,8 +11,8 @@ type MockLLM struct {
 	Response string
 }
 
-func (m *MockLLM) Chat(ctx context.Context, messages []provider.Message) (string, error) {
-	return m.Response, nil
+func (m *MockLLM) Chat(ctx context.Context, messages []provider.Message) (string, provider.Usage, error) {
+	return m.Response, provider.Usage{TotalTokens: 100}, nil
 }
 
 func TestAgentStep(t *testing.T) {

@@ -71,6 +71,8 @@ Action: apply_patch({"path": "file.go", "patch": "--- file.go\n+++\n..."})
 			t.Fatalf("Step %d failed: %v", i, err)
 		}
 
+		t.Logf("[Usage: %d tokens (Total: %d)]", res.Usage.TotalTokens, a.TotalUsage.TotalTokens)
+
 		// Handle Safety Governor approval automatically in the test
 		if res.Status == StatusPending {
 			t.Logf("[APPROVAL REQUIRED]: %s(%s)", res.ToolName, res.ToolArgs)
@@ -120,13 +122,13 @@ type MockMultiStepLLM struct {
 	Turn      int
 }
 
-func (m *MockMultiStepLLM) Chat(ctx context.Context, messages []provider.Message) (string, error) {
+func (m *MockMultiStepLLM) Chat(ctx context.Context, messages []provider.Message) (string, provider.Usage, error) {
 	if m.Turn >= len(m.Responses) {
-		return "Final Answer: I am done.", nil
+		return "Final Answer: I am done.", provider.Usage{TotalTokens: 10}, nil
 	}
 	resp := m.Responses[m.Turn]
 	m.Turn++
-	return resp, nil
+	return resp, provider.Usage{TotalTokens: 50}, nil
 }
 
 func TestReActMultiStep(t *testing.T) {

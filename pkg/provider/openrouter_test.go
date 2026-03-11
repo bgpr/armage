@@ -35,7 +35,7 @@ func TestOpenRouterChat(t *testing.T) {
 		{Role: "user", Content: "Hello"},
 	}
 
-	res, err := client.Chat(context.Background(), messages)
+	res, usage, err := client.Chat(context.Background(), messages)
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
@@ -43,4 +43,5 @@ func TestOpenRouterChat(t *testing.T) {
 	if res != "Thought: Hello!\nAction: ls({\"path\": \".\"})" {
 		t.Errorf("Unexpected response: %s", res)
 	}
+	_ = usage
 }

@@ -97,6 +97,9 @@ Action: apply_patch({"path": "pkg/agent/agent.go", "patch": "--- pkg/agent/agent
 			fmt.Printf("\nThought: %s\n", res.Thought)
 		}
 
+		// Display Usage
+		fmt.Printf("[Usage: %d tokens (Total: %d)]\n", res.Usage.TotalTokens, a.TotalUsage.TotalTokens)
+
 		if res.Status == agent.StatusPending {
 			fmt.Printf("\nAction: %s(%s)\n", res.ToolName, res.ToolArgs)
 			fmt.Print("Approve? [y/N]: ")

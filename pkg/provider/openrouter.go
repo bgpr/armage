@@ -35,24 +35,25 @@ type openRouterResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
+	Usage Usage `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 }
 
-func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, error) {
+func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usage, error) {
 	reqBody := openRouterRequest{
 		Model:    o.Model,
 		Messages: messages,
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", o.BaseURL, bytes.NewBuffer(body))
 	if err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -60,28 +61,28 @@ func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, erro
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		var errBody bytes.Buffer
 		errBody.ReadFrom(resp.Body)
-		return "", fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, errBody.String())
+		return "", Usage{}, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, errBody.String())
 	}
 
 	var orResp openRouterResponse
 	if err := json.NewDecoder(resp.Body).Decode(&orResp); err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 
 	if orResp.Error != nil {
-		return "", fmt.Errorf("OpenRouter error: %s", orResp.Error.Message)
+		return "", Usage{}, fmt.Errorf("OpenRouter error: %s", orResp.Error.Message)
 	}
 
 	if len(orResp.Choices) == 0 {
-		return "", fmt.Errorf("no choices returned")
+		return "", Usage{}, fmt.Errorf("no choices returned")
 	}
 
-	return orResp.Choices[0].Message.Content, nil
+	return orResp.Choices[0].Message.Content, orResp.Usage, nil
 }

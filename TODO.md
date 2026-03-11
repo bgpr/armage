@@ -45,9 +45,10 @@ To reach "Elite" status, the agent needs the following high-fidelity tools:
 ---
 
 ## 📊 Token & Context Management (Phase 4)
-- [ ] **Context Trimming**: Implement a sliding window or summarization strategy for long histories.
-- [ ] **Context Pinning**: Allow the agent or user to "pin" critical files (e.g., `main.go`) to prevent them from being trimmed.
-- [ ] **Token Usage Tracker**: Log turn-by-turn costs to avoid hitting free-tier limits.
+- [x] **Context Trimming**: Implement a sliding window or summarization strategy for long histories.
+- [ ] **Context Pinning**: Allow the agent or user to \"pin\" critical files (e.g., `main.go`) to prevent them from being trimmed.
+- [x] **Token Usage Tracker**: Log turn-by-turn costs to avoid hitting free-tier limits.
+
 
 ---
 
