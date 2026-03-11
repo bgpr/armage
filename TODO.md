@@ -26,6 +26,7 @@ To reach "Elite" status, the agent needs the following high-fidelity tools:
 2.  **`get_symbols` (Code CT Scan)**
     - *Goal*: List all functions, classes, and variables in a file.
     - *Constraint*: Use lightweight regex or `ctags` to avoid heavy parsers.
+    - *Status*: ✅ **Complete** (supports Go, Python, JS regex)
 
 3.  **`apply_patch` (Advanced Edits)**
     - *Goal*: Support Standard Unified Diffs for complex, multi-line refactors.

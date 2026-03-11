@@ -32,6 +32,7 @@ func main() {
 	reg.Register(&agent.WriteTool{})      // Register atomic write
 	reg.Register(&agent.DiffTool{})       // Register surgical edit (Search/Replace)
 	reg.Register(&agent.ListDirTool{})    // Register project navigation
+	reg.Register(&agent.SymbolsTool{})    // Register code mapping
 	
 	a := agent.New(llm, reg)
 	a.RequireApproval = true // Enable Safety Governor
@@ -43,14 +44,15 @@ Action: ToolName([JSON Arguments])
 Available Tools:
 - shell: Executes a shell command and returns the output. Use it for complex system operations.
 - list_dir: {"path": "...", "depth": 1}. Lists files/directories. Use depth to see subdirectories (max 3).
+- get_symbols: {"path": "..."}. Lists functions, classes, and types in a file. Very efficient for mapping out code.
 - read_file: {"path": "...", "start": 1, "end": 10}. Reads a file with line numbers for context.
 - grep_search: {"pattern": "...", "path": "..."}. Recursively searches for a pattern in files.
 - edit_file_diff: {"path": "...", "find": "...", "replace": "..."}. Surgically updates a file. Provide the EXACT 'find' block (without line numbers) and the 'replace' block.
 - write_file: {"path": "...", "content": "..."}. Writes content to a file atomically. Use this for new or small files.
 
 Example:
-Thought: I need to see the project structure.
-Action: list_dir({"path": ".", "depth": 1})
+Thought: I need to see what functions are in this file.
+Action: get_symbols({"path": "pkg/agent/agent.go"})
 `)
 
 	// Check if we have an existing state to resume

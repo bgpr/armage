@@ -29,6 +29,7 @@ func TestIntegrationFullCycle(t *testing.T) {
 	reg.Register(&SearchTool{})
 	reg.Register(&DiffTool{})
 	reg.Register(&ListDirTool{})
+	reg.Register(&SymbolsTool{})
 
 	a := New(llm, reg)
 	a.RequireApproval = true
@@ -40,6 +41,7 @@ Action: ToolName([JSON Arguments])
 Available Tools:
 - shell: Executes a shell command and returns the output.
 - list_dir: {"path": "...", "depth": 1}. Lists files/directories.
+- get_symbols: {"path": "..."}. Lists functions, classes, and types in a file.
 - read_file: {"path": "...", "start": 1, "end": 10}. Reads a file with line numbers.
 - write_file: {"path": "...", "content": "..."}. Writes content to a file atomically.
 - grep_search: {"pattern": "...", "path": "..."}. Searches for a pattern in files.
@@ -55,7 +57,7 @@ Action: list_dir({"path": ".", "depth": 1})
 	// 2. Task: Search, Read, then Edit a specific file.
 	ctx := context.Background()
 	// We'll target tools_test.go which contains 'MockTool' and the comment '// returns the input'
-	task := "Explore the project structure with list_dir. Then search for 'MockTool' in pkg/agent. Read tools_test.go, then update it so the comment '// returns the input' becomes '// returns the raw input'. Use edit_file_diff for the change. Finally, search for 'raw input' to confirm."
+	task := "Explore the project structure with list_dir. Then search for 'MockTool' in pkg/agent. Use get_symbols to map tools_test.go, then update it so the comment '// returns the input' becomes '// returns the raw input'. Use edit_file_diff for the change. Finally, search for 'raw input' to confirm."
 	
 	fmt.Printf("[TASK]: %s\n", task)
 
