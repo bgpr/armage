@@ -51,7 +51,7 @@ To reach "Elite" status, the agent needs the following high-fidelity tools:
 
 ## 🤖 Advanced Intelligence
 - [x] **Auto-Retry/Self-Correction**: Agent automatically reacts to tool errors and tries alternative approaches.
-- [ ] **Step-by-Step Strategy**: Force generation of `PLAN.md` for complex tasks.
+- [x] **Step-by-Step Strategy**: Force generation of `PLAN.md` for complex tasks using `propose_plan`.
 
 
 ---

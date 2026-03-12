@@ -35,6 +35,7 @@ func main() {
 	reg.Register(&agent.SymbolsTool{})    // Register code mapping
 	reg.Register(&agent.ApplyPatchTool{}) // Register robust multi-line edits
 	reg.Register(&agent.PinTool{Agent: a}) // Register context pinning
+	reg.Register(&agent.PlanningTool{Agent: a}) // Register strategy mapping
 	
 	a.RequireApproval = true // Enable Safety Governor
 	a.AddSystemPrompt(`You are Armage, an expert coding agent for Termux on Android. 
@@ -46,6 +47,7 @@ Available Tools:
 - shell: Executes a shell command and returns the output. Use it for complex system operations.
 - list_dir: {"path": "...", "depth": 1}. Lists files/directories. Use depth to see subdirectories (max 3).
 - get_symbols: {"path": "..."}. Lists functions, classes, and types in a file. Very efficient for mapping out code.
+- propose_plan: {"plan": "..."}. Documents a step-by-step strategy in PLAN.md and pins it to context. Use this for complex tasks before editing files.
 - pin_file: {"path": "..."}. Pins a file's content to your history permanently. Use this for critical context (README, main.go, tests).
 - read_file: {"path": "...", "start": 1, "end": 10}. Reads a file with line numbers for context.
 - grep_search: {"pattern": "...", "path": "..."}. Recursively searches for a pattern in files.
@@ -54,8 +56,8 @@ Available Tools:
 - write_file: {"path": "...", "content": "..."}. Writes content to a file atomically. Use this for new or small files.
 
 Example:
-Thought: I need to keep the project instructions in context permanently.
-Action: pin_file({"path": "TODO.md"})
+Thought: This is a complex refactor. I need to document my plan first.
+Action: propose_plan({"plan": "1. Search for usages\n2. Create new interface\n..."})
 `)
 
 	// Check if we have an existing state to resume
