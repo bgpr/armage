@@ -20,7 +20,7 @@ func main() {
 	}
 	model := os.Getenv("OPENROUTER_MODEL")
 	if model == "" {
-		model = "google/gemma-3-12b-it" 
+		model = "google/gemma-3-12b-it:free" 
 	}
 
 	// 2. Setup Provider and Registry
@@ -116,6 +116,18 @@ Action: propose_plan({"plan": "1. Search for usages\n2. Create new interface\n..
 				res, err = a.Approve(ctx)
 				if err != nil {
 					fmt.Printf("Approval Error: %v\n", err)
+				} else {
+					// IMPORTANT: Agent executed the tool, now it needs to THINK about the result.
+					// We trigger an empty Step to let it continue its ReAct chain.
+					fmt.Println("Thinking...")
+					res, err = a.Step(ctx, "")
+					if err != nil {
+						fmt.Printf("Error: %v\n", err)
+					}
+					if res.Thought != "" {
+						fmt.Printf("\nThought: %s\n", res.Thought)
+					}
+					fmt.Printf("[Usage: %d tokens (Total: %d)]\n", res.Usage.TotalTokens, a.TotalUsage.TotalTokens)
 				}
 			} else {
 				fmt.Println("Action cancelled.")

@@ -19,7 +19,7 @@ func TestIntegrationFullCycle(t *testing.T) {
 	// 1. Setup with a FREE model
 	model := os.Getenv("OPENROUTER_MODEL")
 	if model == "" {
-		model = "google/gemma-3-12b-it"
+		model = "google/gemma-3-12b-it:free"
 	}
 	llm := provider.NewOpenRouter(apiKey, model)
 	reg := NewRegistry()

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -44,4 +45,61 @@ func TestOpenRouterChat(t *testing.T) {
 		t.Errorf("Unexpected response: %s", res)
 	}
 	_ = usage
+}
+
+func TestOpenRouterFallback(t *testing.T) {
+	tries := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tries++
+		var reqBody openRouterRequest
+		json.NewDecoder(r.Body).Decode(&reqBody)
+
+		if tries == 1 {
+			// First try: simulate "system role not supported" error
+			w.WriteHeader(http.StatusBadRequest)
+			resp := map[string]interface{}{
+				"error": map[string]string{
+					"message": "Developer instruction is not enabled for this model",
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Second try: verify role was changed to user
+		if reqBody.Messages[0].Role != "user" || !strings.Contains(reqBody.Messages[0].Content, "System Instructions:") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		resp := map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{"content": "Fallback worked"},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewOpenRouter("test-key", "test-model")
+	client.BaseURL = server.URL
+
+	messages := []Message{
+		{Role: "system", Content: "Be a helper"},
+	}
+
+	res, _, err := client.Chat(context.Background(), messages)
+	if err != nil {
+		t.Fatalf("Fallback failed: %v", err)
+	}
+
+	if res != "Fallback worked" {
+		t.Errorf("Expected 'Fallback worked', got: %s", res)
+	}
+	if tries != 2 {
+		t.Errorf("Expected 2 tries, got: %d", tries)
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 const defaultOpenRouterURL = "https://openrouter.ai/api/v1/chat/completions"
@@ -42,6 +43,34 @@ type openRouterResponse struct {
 }
 
 func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usage, error) {
+	// 1. Try with original messages (respecting 'system' role)
+	res, usage, err := o.doRequest(ctx, messages)
+	if err == nil {
+		return res, usage, nil
+	}
+
+	// 2. If it's a 400 error mentioning 'system' role or 'developer instruction', retry with fallback
+	errStr := strings.ToLower(err.Error())
+	if strings.Contains(errStr, "400") && (strings.Contains(errStr, "system") || strings.Contains(errStr, "developer instruction")) {
+		fallbackMessages := make([]Message, len(messages))
+		for i, m := range messages {
+			if m.Role == "system" {
+				fallbackMessages[i] = Message{
+					Role:    "user",
+					Content: "System Instructions: " + m.Content,
+				}
+			} else {
+				fallbackMessages[i] = m
+			}
+		}
+		// Retry with user-role instructions
+		return o.doRequest(ctx, fallbackMessages)
+	}
+
+	return "", Usage{}, err
+}
+
+func (o *OpenRouter) doRequest(ctx context.Context, messages []Message) (string, Usage, error) {
 	reqBody := openRouterRequest{
 		Model:    o.Model,
 		Messages: messages,
@@ -68,7 +97,8 @@ func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usag
 	if resp.StatusCode != http.StatusOK {
 		var errBody bytes.Buffer
 		errBody.ReadFrom(resp.Body)
-		return "", Usage{}, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, errBody.String())
+		// Return the error body as part of the error message for inspection
+		return "", Usage{}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, errBody.String())
 	}
 
 	var orResp openRouterResponse
