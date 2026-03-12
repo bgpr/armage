@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/user/armage/pkg/provider"
 )
@@ -34,6 +35,7 @@ type Agent struct {
 	PendingResult   *StepResult    // Stashed result waiting for approval
 	MaxHistory      int            // Maximum number of messages to keep (0 for unlimited)
 	TotalUsage      provider.Usage // Cumulative token usage
+	PinnedFiles     []string       // List of paths pinned to context
 }
 
 type State struct {
@@ -41,14 +43,16 @@ type State struct {
 	RequireApproval bool               `json:"require_approval"`
 	MaxHistory      int                `json:"max_history"`
 	TotalUsage      provider.Usage     `json:"total_usage"`
+	PinnedFiles     []string           `json:"pinned_files"`
 }
 
 func New(llm provider.LLM, registry *Registry) *Agent {
 	return &Agent{
-		LLM:        llm,
-		Registry:   registry,
-		History:    []provider.Message{},
-		MaxHistory: 20, // Default to a reasonable limit for mobile context
+		LLM:         llm,
+		Registry:    registry,
+		History:     []provider.Message{},
+		MaxHistory:  20, // Default to a reasonable limit for mobile context
+		PinnedFiles: []string{},
 	}
 }
 
@@ -59,6 +63,7 @@ func (a *Agent) Save(path string) error {
 		RequireApproval: a.RequireApproval,
 		MaxHistory:      a.MaxHistory,
 		TotalUsage:      a.TotalUsage,
+		PinnedFiles:     a.PinnedFiles,
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -81,12 +86,47 @@ func (a *Agent) Load(path string) error {
 	a.RequireApproval = state.RequireApproval
 	a.MaxHistory = state.MaxHistory
 	a.TotalUsage = state.TotalUsage
+	a.PinnedFiles = state.PinnedFiles
 	return nil
 }
 
 // AddSystemPrompt sets the initial context.
 func (a *Agent) AddSystemPrompt(prompt string) {
 	a.History = append(a.History, provider.Message{Role: "system", Content: prompt})
+}
+
+// PinFile adds a file's content permanently to the history (protected from trimming).
+func (a *Agent) PinFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	content := fmt.Sprintf("Pinned File: %s\n---\n%s\n---", path, string(data))
+	
+	// Check if already pinned to avoid duplicates
+	for _, p := range a.PinnedFiles {
+		if p == path {
+			return nil 
+		}
+	}
+
+	a.PinnedFiles = append(a.PinnedFiles, path)
+	// Add to history right after the system prompt or at the front
+	msg := provider.Message{Role: "system", Content: content}
+	
+	if len(a.History) > 0 && a.History[0].Role == "system" && !strings.Contains(a.History[0].Content, "Pinned File:") {
+		// Insert after actual system prompt
+		newHistory := make([]provider.Message, 0, len(a.History)+1)
+		newHistory = append(newHistory, a.History[0])
+		newHistory = append(newHistory, msg)
+		newHistory = append(newHistory, a.History[1:]...)
+		a.History = newHistory
+	} else {
+		a.History = append([]provider.Message{msg}, a.History...)
+	}
+
+	return nil
 }
 
 // Step performs a single ReAct turn.
@@ -137,31 +177,35 @@ func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
 	return res, err
 }
 
-// trimHistory keeps the history within MaxHistory limit, always preserving the system prompt.
+// trimHistory keeps the history within MaxHistory limit, preserving system prompt AND pinned files.
 func (a *Agent) trimHistory() {
 	if a.MaxHistory <= 0 || len(a.History) <= a.MaxHistory {
 		return
 	}
 
-	// Identify system prompt
-	var systemPrompt *provider.Message
-	if len(a.History) > 0 && a.History[0].Role == "system" {
-		systemPrompt = &a.History[0]
+	// Identify protected prefix (System prompt + all Pinned files)
+	prefixCount := 0
+	for _, msg := range a.History {
+		if msg.Role == "system" {
+			prefixCount++
+		} else {
+			break // Stop at first user/assistant message
+		}
 	}
 
-	// Keep the last N-1 messages (room for system prompt)
-	keepCount := a.MaxHistory
-	if systemPrompt != nil {
-		keepCount--
+	// Keep the prefix + the latest N messages that fit
+	keepCount := a.MaxHistory - prefixCount
+	if keepCount < 2 {
+		keepCount = 2 // Safety: always keep at least the last turn if possible
 	}
 
 	startIdx := len(a.History) - keepCount
-	newHistory := make([]provider.Message, 0, a.MaxHistory)
-
-	if systemPrompt != nil {
-		newHistory = append(newHistory, *systemPrompt)
+	if startIdx <= prefixCount {
+		return // Nothing to trim that isn't protected
 	}
 
+	newHistory := make([]provider.Message, 0, a.MaxHistory)
+	newHistory = append(newHistory, a.History[:prefixCount]...)
 	newHistory = append(newHistory, a.History[startIdx:]...)
 	a.History = newHistory
 }

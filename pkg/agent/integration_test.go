@@ -33,6 +33,8 @@ func TestIntegrationFullCycle(t *testing.T) {
 	reg.Register(&ApplyPatchTool{})
 
 	a := New(llm, reg)
+	reg.Register(&PinTool{Agent: a}) // Register pin tool with agent reference
+
 	a.RequireApproval = true
 	a.AddSystemPrompt(`You are Armage, an expert coding agent for Termux. 
 Follow the ReAct pattern strictly: 
@@ -43,6 +45,7 @@ Available Tools:
 - shell: Executes a shell command and returns the output.
 - list_dir: {"path": "...", "depth": 1}. Lists files/directories.
 - get_symbols: {"path": "..."}. Lists functions, classes, and types in a file.
+- pin_file: {"path": "..."}. Pins a file to your history permanently.
 - read_file: {"path": "...", "start": 1, "end": 10}. Reads a file with line numbers.
 - write_file: {"path": "...", "content": "..."}. Writes content to a file atomically.
 - grep_search: {"pattern": "...", "path": "..."}. Searches for a pattern in files.
@@ -50,21 +53,20 @@ Available Tools:
 - apply_patch: {"path": "...", "patch": "..."}. Applies a standard unified diff (patch).
 
 Example:
-Thought: I need to apply a complex multi-line change.
-Action: apply_patch({"path": "file.go", "patch": "--- file.go\n+++\n..."})
+Thought: I need to keep the project instructions in context permanently.
+Action: pin_file({"path": "TODO.md"})
 `)
 
 	fmt.Printf("\n--- Multi-Step Search & Edit Integration Test ---\n")
 
-	// 2. Task: Search, Read, then Edit a specific file.
+	// 2. Task: Pin, Search, Read, then Edit a specific file.
 	ctx := context.Background()
-	// We'll target tools_test.go which contains 'MockTool' and the description string
-	task := "Explore the project structure with list_dir. Then search for 'MockTool' in pkg/agent. Use get_symbols to map tools_test.go, then update it so the return string 'returns the input' becomes 'returns the raw input'. Use apply_patch for the change. Finally, search for 'raw input' to confirm."
+	task := "Pin TODO.md to your context. Explore the project structure with list_dir. Then search for 'MockTool' in pkg/agent. Use get_symbols to map tools_test.go, then update it so the return string 'returns the input' becomes 'returns the raw input'. Use apply_patch for the change. Finally, search for 'raw input' to confirm."
 	
 	fmt.Printf("[TASK]: %s\n", task)
 
-	// Up to 6 steps for this complex navigation task
-	for i := 1; i <= 6; i++ {
+	// Up to 8 steps for this complex sequence
+	for i := 1; i <= 8; i++ {
 		t.Logf("\n--- STEP %d ---", i)
 		res, err := a.Step(ctx, task)
 		if err != nil {
