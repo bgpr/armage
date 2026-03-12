@@ -23,7 +23,7 @@ func main() {
 		model = "google/gemma-3-12b-it" 
 	}
 
-	// 2. Setup Provider and Agent
+	// 2. Setup Provider and Registry
 	llm := provider.NewOpenRouter(apiKey, model)
 	reg := agent.NewRegistry()
 	reg.Register(&agent.ShellTool{})      // Register the shell tool
@@ -34,6 +34,11 @@ func main() {
 	reg.Register(&agent.ListDirTool{})    // Register project navigation
 	reg.Register(&agent.SymbolsTool{})    // Register code mapping
 	reg.Register(&agent.ApplyPatchTool{}) // Register robust multi-line edits
+	
+	// Create Agent first
+	a := agent.New(llm, reg)
+	
+	// Now register tools that need agent reference
 	reg.Register(&agent.PinTool{Agent: a}) // Register context pinning
 	reg.Register(&agent.PlanningTool{Agent: a}) // Register strategy mapping
 	
