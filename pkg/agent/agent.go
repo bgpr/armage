@@ -150,7 +150,7 @@ func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
 	// 2. Parse Response
 	thought, toolName, toolArgs, err := Parse(response)
 	if err != nil {
-		a.trimHistory() // Still trim even if no tool was called
+		a.trimHistory(ctx) // Still trim even if no tool was called
 		return StepResult{Thought: thought, Status: StatusRunning, Usage: usage}, nil
 	}
 
@@ -173,41 +173,82 @@ func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
 		res, err = a.ExecuteTool(ctx, res)
 	}
 
-	a.trimHistory()
+	a.trimHistory(ctx)
 	return res, err
 }
 
 // trimHistory keeps the history within MaxHistory limit, preserving system prompt AND pinned files.
-func (a *Agent) trimHistory() {
+// It summarizes deleted turns to maintain context.
+func (a *Agent) trimHistory(ctx context.Context) {
 	if a.MaxHistory <= 0 || len(a.History) <= a.MaxHistory {
 		return
 	}
 
+	// 1. Summarize the turns that are about to be deleted
 	// Identify protected prefix (System prompt + all Pinned files)
 	prefixCount := 0
 	for _, msg := range a.History {
 		if msg.Role == "system" {
 			prefixCount++
 		} else {
-			break // Stop at first user/assistant message
+			break
 		}
 	}
 
-	// Keep the prefix + the latest N messages that fit
-	keepCount := a.MaxHistory - prefixCount
+	keepCount := a.MaxHistory - (prefixCount + 1) // +1 for the Summary message
 	if keepCount < 2 {
-		keepCount = 2 // Safety: always keep at least the last turn if possible
+		keepCount = 2
 	}
 
 	startIdx := len(a.History) - keepCount
 	if startIdx <= prefixCount {
-		return // Nothing to trim that isn't protected
+		return 
 	}
 
-	newHistory := make([]provider.Message, 0, a.MaxHistory)
-	newHistory = append(newHistory, a.History[:prefixCount]...)
-	newHistory = append(newHistory, a.History[startIdx:]...)
-	a.History = newHistory
+	// turnsToSummarize are from prefixCount to startIdx
+	turnsToSummarize := a.History[prefixCount:startIdx]
+	summary, err := a.summarize(ctx, turnsToSummarize)
+	if err == nil {
+		summaryMsg := provider.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("Previous Conversation Summary: %s", summary),
+		}
+		
+		newHistory := make([]provider.Message, 0, a.MaxHistory)
+		newHistory = append(newHistory, a.History[:prefixCount]...)
+		newHistory = append(newHistory, summaryMsg)
+		newHistory = append(newHistory, a.History[startIdx:]...)
+		a.History = newHistory
+	} else {
+		// Fallback to simple sliding window if summarization fails
+		newHistory := make([]provider.Message, 0, a.MaxHistory)
+		newHistory = append(newHistory, a.History[:prefixCount]...)
+		newHistory = append(newHistory, a.History[startIdx:]...)
+		a.History = newHistory
+	}
+}
+
+func (a *Agent) summarize(ctx context.Context, messages []provider.Message) (string, error) {
+	if len(messages) == 0 {
+		return "", nil
+	}
+
+	prompt := []provider.Message{
+		{Role: "system", Content: "Summarize the following conversation turns concisely, focusing on what was achieved and what the current state is. End your response with 'SUMMARY: [your summary]'."},
+	}
+	prompt = append(prompt, messages...)
+
+	summary, _, err := a.LLM.Chat(ctx, prompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract everything after SUMMARY: if present
+	if parts := strings.Split(summary, "SUMMARY:"); len(parts) > 1 {
+		return strings.TrimSpace(parts[len(parts)-1]), nil
+	}
+
+	return summary, nil
 }
 
 // Approve continues the execution of a pending tool call.
@@ -218,7 +259,7 @@ func (a *Agent) Approve(ctx context.Context) (StepResult, error) {
 	res := *a.PendingResult
 	a.PendingResult = nil
 	res, err := a.ExecuteTool(ctx, res)
-	a.trimHistory()
+	a.trimHistory(ctx)
 	return res, err
 }
 

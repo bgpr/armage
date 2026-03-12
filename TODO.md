@@ -45,9 +45,13 @@ To reach "Elite" status, the agent needs the following high-fidelity tools:
 ---
 
 ## 📊 Token & Context Management (Phase 4)
-- [x] **Context Trimming**: Implement a **Sliding Window** strategy for long histories (preserves system prompt).
+- [x] **Context Trimming 2.0**: Implement **Incremental Token-Summary** (summarizes deleted turns to maintain context).
 - [x] **Context Pinning**: Allow the agent or user to \"pin\" critical files (e.g., `main.go`) to prevent them from being trimmed.
 - [x] **Token Usage Tracker**: Log turn-by-turn costs to avoid hitting free-tier limits.
+
+## 🤖 Advanced Intelligence
+- [x] **Auto-Retry/Self-Correction**: Agent automatically reacts to tool errors and tries alternative approaches.
+- [ ] **Step-by-Step Strategy**: Force generation of `PLAN.md` for complex tasks.
 
 
 ---

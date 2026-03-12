@@ -66,12 +66,14 @@ Action: pin_file({"path": "TODO.md"})
 	fmt.Printf("[TASK]: %s\n", task)
 
 	// Up to 8 steps for this complex sequence
+	currentTask := task
 	for i := 1; i <= 8; i++ {
 		t.Logf("\n--- STEP %d ---", i)
-		res, err := a.Step(ctx, task)
+		res, err := a.Step(ctx, currentTask)
 		if err != nil {
 			t.Fatalf("Step %d failed: %v", i, err)
 		}
+		currentTask = "" // Clear task after first turn to allow ReAct loop to continue
 
 		t.Logf("[Usage: %d tokens (Total: %d)]", res.Usage.TotalTokens, a.TotalUsage.TotalTokens)
 
@@ -220,5 +222,79 @@ func TestIntegrationApproval(t *testing.T) {
 	
 	if !strings.Contains(a.History[2].Content, "Observation:") {
 		t.Errorf("Expected observation in history, got: %s", a.History[2].Content)
+	}
+}
+
+func TestIntegrationAutoRetry(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&ShellTool{})
+
+	// Step 1: Call non-existent tool
+	// Step 2: React to error and call shell
+	llm := &MockMultiStepLLM{
+		Responses: []string{
+			"Thought: I will use a broken tool.\nAction: broken_tool(\"data\")",
+			"Thought: broken_tool failed. I will use shell instead.\nAction: shell(\"whoami\")",
+		},
+	}
+
+	a := New(llm, reg)
+	ctx := context.Background()
+
+	// Turn 1
+	res, err := a.Step(ctx, "Start task")
+	if err != nil {
+		t.Fatalf("Step 1 failed: %v", err)
+	}
+	if !strings.Contains(a.History[len(a.History)-1].Content, "Error: Tool 'broken_tool' not found") {
+		t.Errorf("Expected error observation, got: %s", a.History[len(a.History)-1].Content)
+	}
+
+	// Turn 2: Automatic retry (empty input)
+	res, err = a.Step(ctx, "")
+	if err != nil {
+		t.Fatalf("Step 2 failed: %v", err)
+	}
+
+	if res.ToolName != "shell" {
+		t.Errorf("Expected retry with 'shell', got: %s", res.ToolName)
+	}
+}
+
+func TestIntegrationSummarization(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&ShellTool{})
+
+	// Mock LLM that returns a thought and then a summary when asked
+	llm := &MockMultiStepLLM{
+		Responses: []string{
+			"Thought: Step 1.\nAction: shell(\"1\")",
+			"Thought: Step 2.\nAction: shell(\"2\")",
+			"Thought: Step 3.\nAction: shell(\"3\")",
+			"SUMMARY: We performed three steps.",
+		},
+	}
+
+	a := New(llm, reg)
+	a.MaxHistory = 4 // [System, Summary, User, Assistant]
+	ctx := context.Background()
+
+	// Fill history
+	a.Step(ctx, "task 1")
+	a.Step(ctx, "task 2")
+	
+	// This step should trigger summarization
+	a.Step(ctx, "task 3")
+
+	foundSummary := false
+	for _, msg := range a.History {
+		if strings.Contains(msg.Content, "Conversation Summary:") {
+			foundSummary = true
+			break
+		}
+	}
+
+	if !foundSummary {
+		t.Errorf("Summarization was not triggered or summary not found in history")
 	}
 }

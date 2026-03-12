@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -58,5 +59,40 @@ func TestGovernorApproval(t *testing.T) {
 	// 3. User(Observation) - added by Approve/ExecuteTool
 	if len(a.History) != 3 {
 		t.Errorf("Expected history length 3 after approval, got: %d", len(a.History))
+	}
+}
+
+func TestAutoRetryOnToolFailure(t *testing.T) {
+	reg := NewRegistry()
+	// No tools registered, so any action will fail with "Tool not found"
+	
+	llm := &MockMultiStepLLM{
+		Responses: []string{
+			"Thought: I will use a non-existent tool.\nAction: ghost_tool(\"boo\")",
+			"Thought: Oh, ghost_tool failed. I will try a different approach.\nAction: shell(\"ls\")",
+		},
+	}
+
+	a := New(llm, reg)
+	// We want to see if the agent can react to the ERROR observation automatically
+	// Step 1: LLM calls ghost_tool -> Execute fails -> Observation added to history
+	res, err := a.Step(context.Background(), "Start")
+	if err != nil {
+		t.Fatalf("Step 1 failed: %v", err)
+	}
+
+	if !strings.Contains(a.History[len(a.History)-1].Content, "Error: Tool 'ghost_tool' not found") {
+		t.Errorf("Expected error observation in history, got: %s", a.History[len(a.History)-1].Content)
+	}
+
+	// Now, if we call Step again with EMPTY input, it should process the history 
+	// (which includes the error) and return the second response (the retry).
+	res, err = a.Step(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Step 2 failed: %v", err)
+	}
+
+	if res.ToolName != "shell" {
+		t.Errorf("Expected agent to retry with 'shell', got: %s", res.ToolName)
 	}
 }
