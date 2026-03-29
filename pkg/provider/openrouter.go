@@ -17,21 +17,23 @@ type OpenRouter struct {
 	APIKey         string
 	Model          string
 	BaseURL        string
+	ModelsURL      string // Added for testing
 	FallbackModels []string
 	currentIdx     int
 }
 
 func NewOpenRouter(apiKey, model string) *OpenRouter {
 	return &OpenRouter{
-		APIKey:  apiKey,
-		Model:   model,
-		BaseURL: defaultOpenRouterURL,
+		APIKey:    apiKey,
+		Model:     model,
+		BaseURL:   defaultOpenRouterURL,
+		ModelsURL: modelsURL,
 	}
 }
 
 // FetchFreeModels programmatically finds all 0-cost models.
 func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", modelsURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", o.ModelsURL, nil)
 	if err != nil {
 		return nil, err
 	}

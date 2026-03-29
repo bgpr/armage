@@ -50,3 +50,24 @@ Action: echo("hello")`,
 		t.Errorf("Expected multi-part Observation, got: %s", obs)
 	}
 }
+
+func TestAgentStepTransient(t *testing.T) {
+	reg := NewRegistry()
+	llm := &MockLLM{Response: "Thought: I am transient."}
+	a := New(llm, reg)
+	a.History = []provider.Message{{Role: "user", Content: "Existing"}}
+
+	res, err := a.StepTransient(context.Background(), "Nudge")
+	if err != nil {
+		t.Fatalf("StepTransient failed: %v", err)
+	}
+
+	if res.Thought != "I am transient." {
+		t.Errorf("Unexpected thought: %s", res.Thought)
+	}
+
+	// Verify history is UNCHANGED
+	if len(a.History) != 1 || a.History[0].Content != "Existing" {
+		t.Errorf("History was modified by transient step: %v", a.History)
+	}
+}

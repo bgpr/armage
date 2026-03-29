@@ -160,10 +160,11 @@ func TestIntegrationPrivacyShield(t *testing.T) {
 	}
 	defer scrubber.Stop() // Ensure cleanup
 
-	sllm := provider.NewScrubbingLLM(innerLLM, scrubber)
+	sllm := provider.NewScrubbingLLM(innerLLM, scrubber, "")
 	reg := NewRegistry()
 	reg.Register(&ShellTool{})
 	a := New(sllm, reg)
+	a.AddSystemPrompt("You are Armage")
 
 	// 3. Run a turn with "sensitive" info
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

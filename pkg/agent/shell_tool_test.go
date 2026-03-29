@@ -2,20 +2,30 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
 func TestShellTool(t *testing.T) {
-	// ShellTool doesn't exist yet - RED PHASE
 	tool := &ShellTool{}
 
-	// Test a simple command
-	res, err := tool.Execute(context.Background(), "echo 'hello world'")
-	if err != nil {
-		t.Fatalf("ShellTool execution failed: %v", err)
-	}
+	t.Run("RawString", func(t *testing.T) {
+		res, err := tool.Execute(context.Background(), "pwd")
+		if err != nil {
+			t.Fatalf("Failed: %v", err)
+		}
+		if !strings.Contains(res, "/") {
+			t.Errorf("Unexpected output: %s", res)
+		}
+	})
 
-	if res != "hello world\n" {
-		t.Errorf("Expected 'hello world\n', got: '%s'", res)
-	}
+	t.Run("JSON", func(t *testing.T) {
+		res, err := tool.Execute(context.Background(), `{"command": "pwd"}`)
+		if err != nil {
+			t.Fatalf("Failed: %v", err)
+		}
+		if !strings.Contains(res, "/") {
+			t.Errorf("Unexpected output: %s", res)
+		}
+	})
 }

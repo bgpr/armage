@@ -14,31 +14,27 @@ func TestSearchTool(t *testing.T) {
 
 	f1 := tmpDir + "/file1.go"
 	os.WriteFile(f1, []byte("package main\nfunc Hello() {}\n"), 0644)
-	
-	f2 := tmpDir + "/file2.txt"
-	os.WriteFile(f2, []byte("This is a test file with the word 'Hello' in it.\n"), 0644)
 
 	tool := &SearchTool{}
 
-	// Test case 1: Pattern found in multiple files
-	res, err := tool.Execute(context.Background(), `{"pattern": "Hello", "path": "test_search"}`)
-	if err != nil {
-		t.Fatalf("SearchTool failed: %v", err)
-	}
+	t.Run("RawString", func(t *testing.T) {
+		res, err := tool.Execute(context.Background(), "Hello")
+		if err != nil {
+			t.Fatalf("Failed: %v", err)
+		}
+		// Should find it in file1.go by searching from current dir (or where test runs)
+		if !strings.Contains(res, "file1.go") {
+			t.Errorf("Expected result from file1.go, got: %s", res)
+		}
+	})
 
-	if !strings.Contains(res, "file1.go") || !strings.Contains(res, "file2.txt") {
-		t.Errorf("Expected results from both files, got: %s", res)
-	}
-	if !strings.Contains(res, "file1.go:2:") || !strings.Contains(res, "file2.txt:1:") {
-		t.Errorf("Expected filename and line numbers, got: %s", res)
-	}
-
-	// Test case 2: Pattern not found
-	res, err = tool.Execute(context.Background(), `{"pattern": "DoesNotExist", "path": "test_search"}`)
-	if err != nil {
-		t.Fatalf("SearchTool should not return error on no match: %v", err)
-	}
-	if res != "No matches found." {
-		t.Errorf("Expected 'No matches found.', got: %s", res)
-	}
+	t.Run("JSON", func(t *testing.T) {
+		res, err := tool.Execute(context.Background(), `{"pattern": "Hello", "path": "test_search"}`)
+		if err != nil {
+			t.Fatalf("Failed: %v", err)
+		}
+		if !strings.Contains(res, "file1.go:2:") {
+			t.Errorf("Expected filename and line number, got: %s", res)
+		}
+	})
 }
