@@ -7,14 +7,18 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const defaultOpenRouterURL = "https://openrouter.ai/api/v1/chat/completions"
+const modelsURL = "https://openrouter.ai/api/v1/models"
 
 type OpenRouter struct {
-	APIKey  string
-	Model   string
-	BaseURL string
+	APIKey         string
+	Model          string
+	BaseURL        string
+	FallbackModels []string
+	currentIdx     int
 }
 
 func NewOpenRouter(apiKey, model string) *OpenRouter {
@@ -23,6 +27,67 @@ func NewOpenRouter(apiKey, model string) *OpenRouter {
 		Model:   model,
 		BaseURL: defaultOpenRouterURL,
 	}
+}
+
+// FetchFreeModels programmatically finds all 0-cost models.
+func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", modelsURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var res struct {
+		Data []struct {
+			ID      string `json:"id"`
+			Pricing struct {
+				Prompt     string `json:"prompt"`
+				Completion string `json:"completion"`
+				Request    string `json:"request"`
+			} `json:"pricing"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return nil, err
+	}
+
+	var free []string
+	// Exclude very small models that might struggle with ReAct reasoning
+	blacklist := []string{"1b", "0.5b", "phi-3-mini", "tiny", "tinyllama"}
+
+	for _, m := range res.Data {
+		// Strictly filter for models that have 0 pricing AND the :free suffix
+		if m.Pricing.Prompt == "0" && m.Pricing.Completion == "0" && strings.HasSuffix(m.ID, ":free") {
+			isBlacklisted := false
+			lowered := strings.ToLower(m.ID)
+			for _, b := range blacklist {
+				if strings.Contains(lowered, b) {
+					isBlacklisted = true
+					break
+				}
+			}
+			if !isBlacklisted {
+				free = append(free, m.ID)
+			}
+		}
+	}
+
+	// Move the initially preferred model to the front if it's free
+	for i, f := range free {
+		if f == o.Model {
+			free[0], free[i] = free[i], free[0]
+			break
+		}
+	}
+
+	o.FallbackModels = free
+	return free, nil
 }
 
 type openRouterRequest struct {
@@ -43,6 +108,61 @@ type openRouterResponse struct {
 }
 
 func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usage, error) {
+	start := time.Now()
+	var lastErr error
+
+	// 1. Prepare models to rotate through
+	modelsToTry := o.FallbackModels
+	if len(modelsToTry) == 0 {
+		modelsToTry = []string{o.Model}
+	}
+
+	// 2. Rotate through models
+	for i := o.currentIdx; i < len(modelsToTry); i++ {
+		currentModel := modelsToTry[i]
+		o.Model = currentModel
+		o.currentIdx = i
+
+		delay := 4 * time.Second
+		// Inner loop for exponential backoff on the current model
+		for retry := 0; retry < 3; retry++ {
+			res, usage, err := o.doChatWithFallback(ctx, messages)
+			if err == nil {
+				fmt.Printf("\r[LLM Response] Received after %v.\n", time.Since(start).Round(time.Millisecond))
+				return res, usage, nil
+			}
+
+			lastErr = err
+			// Check for 429 (Too Many Requests)
+			if strings.Contains(strings.ToLower(err.Error()), "429") {
+				fmt.Printf("\n[Rate Limited (429) on %s] Retrying in %v... (Attempt %d/3)\n", currentModel, delay, retry+1)
+				select {
+				case <-ctx.Done():
+					return "", Usage{}, ctx.Err()
+				case <-time.After(delay):
+					delay *= 2 // Exponential backoff
+					continue
+				}
+			}
+			
+			// Non-429 error, don't retry inner loop
+			break
+		}
+
+		// If it's a 429 after 3 retries, rotate to the next model in the list
+		if strings.Contains(strings.ToLower(lastErr.Error()), "429") && i < len(modelsToTry)-1 {
+			fmt.Printf("\n[Model Switch] Rotating from %s to next available free model due to persistent rate limiting.\n", currentModel)
+			continue
+		}
+
+		// If we reached here, it's either success (returned above), a non-429 error, or we exhausted all models.
+		return "", Usage{}, lastErr
+	}
+
+	return "", Usage{}, fmt.Errorf("exceeded all retry attempts and all fallback models: %w", lastErr)
+}
+
+func (o *OpenRouter) doChatWithFallback(ctx context.Context, messages []Message) (string, Usage, error) {
 	// 1. Try with original messages (respecting 'system' role)
 	res, usage, err := o.doRequest(ctx, messages)
 	if err == nil {

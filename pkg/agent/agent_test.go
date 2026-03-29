@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/user/armage/pkg/provider"
@@ -44,8 +45,8 @@ Action: echo("hello")`,
 
 	obs := a.History[2].Content
 	// In MockTool, Execute returns args as-is.
-	// If the LLM response has Action: echo("hello"), toolArgs is "\"hello\""
-	if obs != "Observation: \"hello\"" {
-		t.Errorf("Expected Observation: \"hello\", got: %s", obs)
+	// Observations are now multi-part: Observations:\nObservation 1 (echo):\n"hello"
+	if !strings.Contains(obs, "Observation 1 (echo):") || !strings.Contains(obs, "\"hello\"") {
+		t.Errorf("Expected multi-part Observation, got: %s", obs)
 	}
 }

@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/user/armage/pkg/provider"
 )
@@ -19,7 +21,7 @@ func TestIntegrationFullCycle(t *testing.T) {
 	// 1. Setup with a FREE model
 	model := os.Getenv("OPENROUTER_MODEL")
 	if model == "" {
-		model = "google/gemma-3-12b-it:free"
+		model = "meta-llama/llama-3.2-3b-instruct:free"
 	}
 	llm := provider.NewOpenRouter(apiKey, model)
 	reg := NewRegistry()
@@ -81,7 +83,7 @@ Action: propose_plan({"plan": "1. Research\n2. Implement"})
 
 		// Handle Safety Governor approval automatically in the test
 		if res.Status == StatusPending {
-			t.Logf("[APPROVAL REQUIRED]: %s(%s)", res.ToolName, res.ToolArgs)
+			t.Logf("[APPROVAL REQUIRED]: %d actions", len(res.ToolCalls))
 			res, err = a.Approve(ctx)
 			if err != nil {
 				t.Fatalf("Approval failed: %v", err)
@@ -122,19 +124,85 @@ Action: propose_plan({"plan": "1. Research\n2. Implement"})
 	os.Remove("PLAN.md")
 }
 
-// MockMultiStepLLM allows specifying multiple responses for sequential turns.
-type MockMultiStepLLM struct {
-	Responses []string
-	Turn      int
+func TestIntegrationPrivacyShield(t *testing.T) {
+	// 1. Load config from armage.json
+	configData, err := os.ReadFile("../../armage.json")
+	if err != nil {
+		t.Skip("Skipping TestIntegrationPrivacyShield: armage.json not found")
+	}
+
+	var config struct {
+		LocalScrubber struct {
+			BinaryPath string `json:"binary_path"`
+			ModelPath  string `json:"model_path"`
+			URL        string `json:"url"`
+		} `json:"local_scrubber"`
+	}
+	if err := json.Unmarshal(configData, &config); err != nil {
+		t.Fatalf("Failed to parse armage.json: %v", err)
+	}
+
+	if config.LocalScrubber.BinaryPath == "" || config.LocalScrubber.ModelPath == "" {
+		t.Skip("Skipping TestIntegrationPrivacyShield: binary_path or model_path not set in armage.json")
+	}
+
+	// 2. Setup LLM with Scrubbing
+	innerLLM := &MockMultiStepLLM{
+		Responses: []string{
+			"Thought: I will echo the secret.\nAction: shell(\"echo 'The [KEY] is safe'\")",
+		},
+	}
+
+	scrubber := &provider.LocalScrubber{
+		BaseURL:    config.LocalScrubber.URL,
+		BinaryPath: config.LocalScrubber.BinaryPath,
+		ModelPath:  config.LocalScrubber.ModelPath,
+	}
+	defer scrubber.Stop() // Ensure cleanup
+
+	sllm := provider.NewScrubbingLLM(innerLLM, scrubber)
+	reg := NewRegistry()
+	reg.Register(&ShellTool{})
+	a := New(sllm, reg)
+
+	// 3. Run a turn with "sensitive" info
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	task := "My server key is sk-TEST-1234. Please confirm it's safe."
+	_, err = a.Step(ctx, task)
+	if err != nil {
+		t.Fatalf("Integration step failed: %v", err)
+	}
+
+	// 4. Verify that the inner LLM received a scrubbed message
+	if len(innerLLM.LastMessages) < 2 {
+		t.Fatalf("Inner LLM did not receive enough messages")
+	}
+
+	lastUserMsg := innerLLM.LastMessages[len(innerLLM.LastMessages)-1].Content
+	t.Logf("Last User Msg received by Inner LLM: %s", lastUserMsg)
+
+	if strings.Contains(lastUserMsg, "sk-TEST-1234") {
+		t.Errorf("PII Leak! Inner LLM received unscrubbed key: %s", lastUserMsg)
+	}
 }
 
+// Update MockMultiStepLLM to track last messages
 func (m *MockMultiStepLLM) Chat(ctx context.Context, messages []provider.Message) (string, provider.Usage, error) {
+	m.LastMessages = messages
 	if m.Turn >= len(m.Responses) {
 		return "Final Answer: I am done.", provider.Usage{TotalTokens: 10}, nil
 	}
 	resp := m.Responses[m.Turn]
 	m.Turn++
 	return resp, provider.Usage{TotalTokens: 50}, nil
+}
+
+type MockMultiStepLLM struct {
+	Responses    []string
+	Turn         int
+	LastMessages []provider.Message
 }
 
 func TestReActMultiStep(t *testing.T) {
@@ -222,7 +290,7 @@ func TestIntegrationApproval(t *testing.T) {
 		t.Errorf("Expected history length 3 (User + Assistant + Observation), got: %d", len(a.History))
 	}
 	
-	if !strings.Contains(a.History[2].Content, "Observation:") {
+	if !strings.Contains(a.History[2].Content, "Observation 1 (shell):") {
 		t.Errorf("Expected observation in history, got: %s", a.History[2].Content)
 	}
 }
@@ -258,8 +326,8 @@ func TestIntegrationAutoRetry(t *testing.T) {
 		t.Fatalf("Step 2 failed: %v", err)
 	}
 
-	if res.ToolName != "shell" {
-		t.Errorf("Expected retry with 'shell', got: %s", res.ToolName)
+	if len(res.ToolCalls) == 0 || res.ToolCalls[0].Name != "shell" {
+		t.Errorf("Expected retry with 'shell', got: %v", res.ToolCalls)
 	}
 }
 

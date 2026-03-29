@@ -27,8 +27,8 @@ func TestPlanningRequirement(t *testing.T) {
 		t.Fatalf("Step failed: %v", err)
 	}
 
-	if res.ToolName != "propose_plan" {
-		t.Errorf("Expected propose_plan, got: %s", res.ToolName)
+	if len(res.ToolCalls) == 0 || res.ToolCalls[0].Name != "propose_plan" {
+		t.Errorf("Expected propose_plan, got: %+v", res.ToolCalls)
 	}
 
 	// Verify PLAN.md was created

@@ -34,8 +34,12 @@ func TestGovernorApproval(t *testing.T) {
 	}
 	// The parser returns the raw argument string, including quotes if they were in the LLM response
 	expectedArgs := "\"rm test.txt\""
-	if res.ToolName != "shell" || res.ToolArgs != expectedArgs {
-		t.Errorf("Expected shell tool with args %s, got: %s(%s)", expectedArgs, res.ToolName, res.ToolArgs)
+	if len(res.ToolCalls) == 0 {
+		t.Fatalf("Expected at least one tool call, got 0")
+	}
+	tc := res.ToolCalls[0]
+	if tc.Name != "shell" || tc.Args != expectedArgs {
+		t.Errorf("Expected shell tool with args %s, got: %s(%s)", expectedArgs, tc.Name, tc.Args)
 	}
 
 	// Verify tool was NOT executed yet (no Observation in history)
@@ -92,7 +96,7 @@ func TestAutoRetryOnToolFailure(t *testing.T) {
 		t.Fatalf("Step 2 failed: %v", err)
 	}
 
-	if res.ToolName != "shell" {
-		t.Errorf("Expected agent to retry with 'shell', got: %s", res.ToolName)
+	if len(res.ToolCalls) == 0 || res.ToolCalls[0].Name != "shell" {
+		t.Errorf("Expected agent to retry with 'shell', got: %v", res.ToolCalls)
 	}
 }

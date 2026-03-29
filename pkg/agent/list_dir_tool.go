@@ -9,79 +9,75 @@ import (
 	"strings"
 )
 
-// ListDirTool provides a token-efficient, structured directory tree.
 type ListDirTool struct{}
+
+func (t *ListDirTool) Name() string { return "list_dir" }
+func (t *ListDirTool) Description() string {
+	return "Lists files and directories. Arguments can be a JSON object like {\"path\": \".\", \"depth\": 1} or a raw path string."
+}
 
 type listDirArgs struct {
 	Path  string `json:"path"`
-	Depth int    `json:"depth"` // 0 for current level, > 0 for nested
+	Depth int    `json:"depth"`
 }
 
-func (l *ListDirTool) Name() string { return "list_dir" }
-
-func (l *ListDirTool) Description() string {
-	return "Lists files and directories in a path. Use 'depth' to see nested items (max 3)."
-}
-
-func (l *ListDirTool) Execute(ctx context.Context, args string) (string, error) {
+func (t *ListDirTool) Execute(ctx context.Context, args string) (string, error) {
 	var a listDirArgs
+	// 1. Try to parse as JSON
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
-		// Fallback for simple path string
-		a.Path = args
+		// 2. Fallback: treat as raw path string
+		a.Path = strings.Trim(args, "\"'")
+		a.Depth = 1
 	}
 
 	if a.Path == "" {
 		a.Path = "."
 	}
-
-	// Limit depth for context protection
-	if a.Depth > 3 {
-		a.Depth = 3
-	}
-	if a.Depth < 0 {
-		a.Depth = 0
+	if a.Depth <= 0 {
+		a.Depth = 1
 	}
 
-	output, err := l.walk(a.Path, "", 0, a.Depth)
-	if err != nil {
-		return "", err
-	}
-
-	if output == "" {
-		return "Directory is empty or all items were ignored.", nil
-	}
-
-	return strings.TrimSuffix(output, "\n"), nil
-}
-
-func (l *ListDirTool) walk(path, indent string, currentDepth, maxDepth int) (string, error) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return "", err
-	}
-
-	var builder strings.Builder
-	for _, entry := range entries {
-		name := entry.Name()
-
-		// Skip hidden and common bulky directories
-		if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
-			continue
+	var result strings.Builder
+	err := filepath.WalkDir(a.Path, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
 
-		if entry.IsDir() {
-			builder.WriteString(fmt.Sprintf("%s%s/\n", indent, name))
-			if currentDepth < maxDepth {
-				subOutput, err := l.walk(filepath.Join(path, name), indent+"  ", currentDepth+1, maxDepth)
-				if err != nil {
-					return "", err
-				}
-				builder.WriteString(subOutput)
+		// Calculate current depth
+		rel, _ := filepath.Rel(a.Path, path)
+		depth := 0
+		if rel != "." {
+			depth = strings.Count(rel, string(os.PathSeparator)) + 1
+		}
+
+		if depth > a.Depth {
+			if d.IsDir() {
+				return filepath.SkipDir
 			}
-		} else {
-			builder.WriteString(fmt.Sprintf("%s%s\n", indent, name))
+			return nil
 		}
+
+		// Ignore hidden files and common junk
+		if strings.HasPrefix(d.Name(), ".") && d.Name() != "." && d.Name() != ".." {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		indent := strings.Repeat("  ", depth)
+		if d.IsDir() {
+			result.WriteString(fmt.Sprintf("%s%s/\n", indent, d.Name()))
+		} else {
+			result.WriteString(fmt.Sprintf("%s%s\n", indent, d.Name()))
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return "", err
 	}
 
-	return builder.String(), nil
+	return strings.TrimSpace(result.String()), nil
 }

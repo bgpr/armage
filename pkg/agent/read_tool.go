@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
-// ReadTool handles surgical file reading with line numbers and ranges.
 type ReadTool struct{}
+
+func (t *ReadTool) Name() string        { return "read_file" }
+func (t *ReadTool) Description() string { return "Reads a file with line numbers. Supports 'start' and 'end' lines." }
 
 type readArgs struct {
 	Path  string `json:"path"`
@@ -17,20 +20,16 @@ type readArgs struct {
 	End   int    `json:"end"`
 }
 
-func (r *ReadTool) Name() string { return "read_file" }
-
-func (r *ReadTool) Description() string {
-	return "Reads a file and returns its content with line numbers. Use 'start' and 'end' for line ranges."
-}
-
-func (r *ReadTool) Execute(ctx context.Context, args string) (string, error) {
+func (t *ReadTool) Execute(ctx context.Context, args string) (string, error) {
 	var a readArgs
-	// Try parsing JSON. If it's a simple string, treat it as the path.
-	// LLM Action: read_file({"path": "file.txt"}) or read_file("file.txt")
+	// 1. Try to parse as JSON
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
-		// Clean up potential quotes from the LLM if it's not JSON
-		a.Path = args
-		a.Path = fmt.Sprintf("%v", args) // Coerce to string
+		// 2. Fallback: treat as raw path string
+		a.Path = strings.Trim(args, "\"'")
+	}
+
+	if a.Path == "" {
+		return "", fmt.Errorf("missing path")
 	}
 
 	file, err := os.Open(a.Path)
@@ -39,26 +38,15 @@ func (r *ReadTool) Execute(ctx context.Context, args string) (string, error) {
 	}
 	defer file.Close()
 
-	var output string
+	var lines []string
 	scanner := bufio.NewScanner(file)
 	lineNum := 1
-
 	for scanner.Scan() {
-		// Apply line range filters (if start or end are provided)
-		if a.Start > 0 && lineNum < a.Start {
-			lineNum++
-			continue
+		if (a.Start == 0 || lineNum >= a.Start) && (a.End == 0 || lineNum <= a.End) {
+			lines = append(lines, fmt.Sprintf("%d | %s", lineNum, scanner.Text()))
 		}
-		if a.End > 0 && lineNum > a.End {
-			break
-		}
-
-		output += fmt.Sprintf("%d | %s\n", lineNum, scanner.Text())
 		lineNum++
-
-		// Safety break for context protection (1000 lines max)
-		if lineNum > 1000 && a.End == 0 {
-			output += "\n[Truncated: File too large. Use line ranges for specific sections.]"
+		if a.End > 0 && lineNum > a.End {
 			break
 		}
 	}
@@ -67,5 +55,5 @@ func (r *ReadTool) Execute(ctx context.Context, args string) (string, error) {
 		return "", err
 	}
 
-	return output, nil
+	return strings.Join(lines, "\n"), nil
 }

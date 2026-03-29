@@ -10,27 +10,25 @@ import (
 	"strings"
 )
 
-// SymbolsTool extracts functions, classes, and types from files.
 type SymbolsTool struct{}
+
+func (t *SymbolsTool) Name() string        { return "get_symbols" }
+func (t *SymbolsTool) Description() string { return "Lists functions, classes, and types in a file." }
 
 type symbolsArgs struct {
 	Path string `json:"path"`
 }
 
-func (s *SymbolsTool) Name() string { return "get_symbols" }
-
-func (s *SymbolsTool) Description() string {
-	return "Lists functions, classes, and types in a file. Very efficient for mapping out code."
-}
-
-func (s *SymbolsTool) Execute(ctx context.Context, args string) (string, error) {
+func (t *SymbolsTool) Execute(ctx context.Context, args string) (string, error) {
 	var a symbolsArgs
+	// 1. Try to parse as JSON
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
-		a.Path = args
+		// 2. Fallback: treat as raw path string
+		a.Path = strings.Trim(args, "\"'")
 	}
 
 	if a.Path == "" {
-		return "", fmt.Errorf("path is required for get_symbols")
+		return "", fmt.Errorf("missing path")
 	}
 
 	file, err := os.Open(a.Path)
@@ -39,52 +37,32 @@ func (s *SymbolsTool) Execute(ctx context.Context, args string) (string, error) 
 	}
 	defer file.Close()
 
-	// Define common patterns for code symbols
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`^func\s+(?:\([^)]+\)\s+)?([A-Za-z0-9_]*)`),               // Go functions
-		regexp.MustCompile(`^type\s+([A-Za-z0-9_]*)\s+(?:struct|interface)`),        // Go types
-		regexp.MustCompile(`^def\s+([a-z0-9_]+)\s*\(`),                               // Python functions
-		regexp.MustCompile(`^class\s+([A-Z][A-Za-z0-9_]*)\s*[:(]`),                  // Python classes
-		regexp.MustCompile(`^(?:export\s+)?(?:async\s+)?function\s+([a-z0-9_]+)`),    // JS/TS functions
-		regexp.MustCompile(`^(?:pub\s+)?fn\s+([a-z0-9_]+)`),                         // Rust functions
-		regexp.MustCompile(`^(?:pub\s+)?(?:struct|enum|trait|impl)\s+([A-Z]\w*)`),    // Rust types
-		regexp.MustCompile(`^[a-zA-Z_]\w*\s+[a-zA-Z_]\w*\s*\(`),                      // C/C++ Functions (basic)
-		regexp.MustCompile(`^(?:public|private|protected|internal)\s+class\s+(\w+)`), // Java/Kotlin classes
-		regexp.MustCompile(`^#+\s+.*`),                                               // Markdown headers
-		regexp.MustCompile(`^[a-z0-9_]+\s*\(\)\s*\{`),                                // Shell functions
+	// Regex for Go, Python, and some JS/TS symbols
+	symbolPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)`), // Go functions
+		regexp.MustCompile(`^type\s+(\w+)\s+(?:struct|interface)`), // Go types
+		regexp.MustCompile(`^def\s+(\w+)\(`),                       // Python functions
+		regexp.MustCompile(`^class\s+(\w+)`),                       // Python/JS classes
+		regexp.MustCompile(`^(?:export\s+)?function\s+(\w+)`),      // JS functions
 	}
 
-	var output strings.Builder
+	var symbols []string
 	scanner := bufio.NewScanner(file)
 	lineNum := 1
-
 	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") {
-			// Don't skip Markdown headers which start with #
-			if !strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "##") {
-				lineNum++
-				continue
-			}
-		}
-
-		for _, p := range patterns {
-			if p.MatchString(trimmed) {
-				output.WriteString(fmt.Sprintf("%d | %s\n", lineNum, trimmed))
+		line := strings.TrimSpace(scanner.Text())
+		for _, re := range symbolPatterns {
+			if match := re.FindStringSubmatch(line); len(match) > 1 {
+				symbols = append(symbols, fmt.Sprintf("%d | %s", lineNum, line))
 				break
 			}
 		}
 		lineNum++
 	}
 
-	if err := scanner.Err(); err != nil {
-		return "", err
+	if len(symbols) == 0 {
+		return "No symbols found or file type not supported for symbol extraction.", nil
 	}
 
-	if output.Len() == 0 {
-		return "No major symbols found in this file.", nil
-	}
-
-	return strings.TrimSuffix(output.String(), "\n"), nil
+	return strings.Join(symbols, "\n"), nil
 }

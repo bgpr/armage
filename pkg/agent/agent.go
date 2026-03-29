@@ -19,11 +19,10 @@ const (
 
 // StepResult contains the outcome of a single turn.
 type StepResult struct {
-	Thought  string         `json:"thought"`
-	Status   AgentStatus    `json:"status"`
-	ToolName string         `json:"tool_name,omitempty"`
-	ToolArgs string         `json:"tool_args,omitempty"`
-	Usage    provider.Usage `json:"usage"`
+	Thought   string         `json:"thought"`
+	Status    AgentStatus    `json:"status"`
+	ToolCalls []ToolCall     `json:"tool_calls,omitempty"`
+	Usage     provider.Usage `json:"usage"`
 }
 
 // Agent is the core orchestrator.
@@ -51,7 +50,7 @@ func New(llm provider.LLM, registry *Registry) *Agent {
 		LLM:         llm,
 		Registry:    registry,
 		History:     []provider.Message{},
-		MaxHistory:  20, // Default to a reasonable limit for mobile context
+		MaxHistory:  30, 
 		PinnedFiles: []string{},
 	}
 }
@@ -104,7 +103,6 @@ func (a *Agent) PinFile(path string) error {
 
 	content := fmt.Sprintf("Pinned File: %s\n---\n%s\n---", path, string(data))
 	
-	// Check if already pinned to avoid duplicates
 	for _, p := range a.PinnedFiles {
 		if p == path {
 			return nil 
@@ -112,11 +110,9 @@ func (a *Agent) PinFile(path string) error {
 	}
 
 	a.PinnedFiles = append(a.PinnedFiles, path)
-	// Add to history right after the system prompt or at the front
 	msg := provider.Message{Role: "system", Content: content}
 	
 	if len(a.History) > 0 && a.History[0].Role == "system" && !strings.Contains(a.History[0].Content, "Pinned File:") {
-		// Insert after actual system prompt
 		newHistory := make([]provider.Message, 0, len(a.History)+1)
 		newHistory = append(newHistory, a.History[0])
 		newHistory = append(newHistory, msg)
@@ -148,44 +144,84 @@ func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
 	a.TotalUsage.TotalTokens += usage.TotalTokens
 
 	// 2. Parse Response
-	thought, toolName, toolArgs, err := Parse(response)
+	thought, toolCalls, err := Parse(response)
 	if err != nil {
-		a.trimHistory(ctx) // Still trim even if no tool was called
+		a.trimHistory(ctx) 
 		return StepResult{Thought: thought, Status: StatusRunning, Usage: usage}, nil
 	}
 
-	res := StepResult{
-		Thought:  thought,
-		ToolName: toolName,
-		ToolArgs: toolArgs,
-		Status:   StatusRunning,
-		Usage:    usage,
+	// 3. Detect if the agent is stuck (Thought but no Action and no Final Answer)
+	isFinished := strings.Contains(strings.ToLower(thought), "final answer")
+	if len(toolCalls) == 0 && !isFinished {
+		res := StepResult{
+			Thought: thought,
+			Status:  StatusRunning, 
+			Usage:   usage,
+		}
+		a.trimHistory(ctx)
+		return res, nil
 	}
 
-	// 3. Handle Tool Execution with Safety Governor
-	if toolName != "" {
+	// Limit to 5 calls per turn
+	if len(toolCalls) > 5 {
+		toolCalls = toolCalls[:5]
+	}
+
+	res := StepResult{
+		Thought:   thought,
+		ToolCalls: toolCalls,
+		Status:    StatusRunning,
+		Usage:     usage,
+	}
+
+	// 4. Handle Tool Execution with Safety Governor
+	if len(toolCalls) > 0 {
 		if a.RequireApproval {
 			res.Status = StatusPending
 			a.PendingResult = &res
-			// Note: trimHistory will be called after Approval/Execution
 			return res, nil
 		}
-		res, err = a.ExecuteTool(ctx, res)
+		res, err = a.ExecuteTools(ctx, res)
 	}
 
 	a.trimHistory(ctx)
 	return res, err
 }
 
-// trimHistory keeps the history within MaxHistory limit, preserving system prompt AND pinned files.
-// It summarizes deleted turns to maintain context.
+// StepTransient sends a message to the LLM without adding it to the history.
+func (a *Agent) StepTransient(ctx context.Context, instruction string) (StepResult, error) {
+	tempHistory := make([]provider.Message, len(a.History))
+	copy(tempHistory, a.History)
+	tempHistory = append(tempHistory, provider.Message{Role: "user", Content: instruction})
+
+	response, usage, err := a.LLM.Chat(ctx, tempHistory)
+	if err != nil {
+		return StepResult{}, err
+	}
+
+	// Track usage even for transient steps
+	a.TotalUsage.PromptTokens += usage.PromptTokens
+	a.TotalUsage.CompletionTokens += usage.CompletionTokens
+	a.TotalUsage.TotalTokens += usage.TotalTokens
+
+	thought, toolCalls, err := Parse(response)
+	if err != nil {
+		return StepResult{Thought: thought, Usage: usage}, nil
+	}
+
+	return StepResult{
+		Thought:   thought,
+		ToolCalls: toolCalls,
+		Status:    StatusRunning,
+		Usage:     usage,
+	}, nil
+}
+
 func (a *Agent) trimHistory(ctx context.Context) {
 	if a.MaxHistory <= 0 || len(a.History) <= a.MaxHistory {
 		return
 	}
 
-	// 1. Summarize the turns that are about to be deleted
-	// Identify protected prefix (System prompt + all Pinned files)
 	prefixCount := 0
 	for _, msg := range a.History {
 		if msg.Role == "system" {
@@ -195,7 +231,7 @@ func (a *Agent) trimHistory(ctx context.Context) {
 		}
 	}
 
-	keepCount := a.MaxHistory - (prefixCount + 1) // +1 for the Summary message
+	keepCount := a.MaxHistory - (prefixCount + 1)
 	if keepCount < 2 {
 		keepCount = 2
 	}
@@ -205,7 +241,6 @@ func (a *Agent) trimHistory(ctx context.Context) {
 		return 
 	}
 
-	// turnsToSummarize are from prefixCount to startIdx
 	turnsToSummarize := a.History[prefixCount:startIdx]
 	summary, err := a.summarize(ctx, turnsToSummarize)
 	if err == nil {
@@ -220,7 +255,6 @@ func (a *Agent) trimHistory(ctx context.Context) {
 		newHistory = append(newHistory, a.History[startIdx:]...)
 		a.History = newHistory
 	} else {
-		// Fallback to simple sliding window if summarization fails
 		newHistory := make([]provider.Message, 0, a.MaxHistory)
 		newHistory = append(newHistory, a.History[:prefixCount]...)
 		newHistory = append(newHistory, a.History[startIdx:]...)
@@ -234,7 +268,7 @@ func (a *Agent) summarize(ctx context.Context, messages []provider.Message) (str
 	}
 
 	prompt := []provider.Message{
-		{Role: "system", Content: "Summarize the following conversation turns concisely, focusing on what was achieved and what the current state is. End your response with 'SUMMARY: [your summary]'."},
+		{Role: "system", Content: "Summarize the following conversation turns concisely (max 2 sentences). Focus on what was achieved. Do NOT return an empty response. End with 'SUMMARY: [your summary]'."},
 	}
 	prompt = append(prompt, messages...)
 
@@ -243,7 +277,6 @@ func (a *Agent) summarize(ctx context.Context, messages []provider.Message) (str
 		return "", err
 	}
 
-	// Extract everything after SUMMARY: if present
 	if parts := strings.Split(summary, "SUMMARY:"); len(parts) > 1 {
 		return strings.TrimSpace(parts[len(parts)-1]), nil
 	}
@@ -251,34 +284,40 @@ func (a *Agent) summarize(ctx context.Context, messages []provider.Message) (str
 	return summary, nil
 }
 
-// Approve continues the execution of a pending tool call.
+// Approve continues the execution of pending tool calls.
 func (a *Agent) Approve(ctx context.Context) (StepResult, error) {
 	if a.PendingResult == nil {
 		return StepResult{}, fmt.Errorf("no pending action to approve")
 	}
 	res := *a.PendingResult
 	a.PendingResult = nil
-	res, err := a.ExecuteTool(ctx, res)
+	res, err := a.ExecuteTools(ctx, res)
 	a.trimHistory(ctx)
 	return res, err
 }
 
-// ExecuteTool performs the actual tool call and records the observation.
-func (a *Agent) ExecuteTool(ctx context.Context, res StepResult) (StepResult, error) {
-	tool, exists := a.Registry.Get(res.ToolName)
-	if !exists {
-		observation := fmt.Sprintf("Error: Tool '%s' not found.", res.ToolName)
-		a.History = append(a.History, provider.Message{Role: "user", Content: "Observation: " + observation})
-		return res, nil
+// ExecuteTools performs the actual tool calls and records the observations.
+func (a *Agent) ExecuteTools(ctx context.Context, res StepResult) (StepResult, error) {
+	var observations []string
+
+	for i, tc := range res.ToolCalls {
+		tool, exists := a.Registry.Get(tc.Name)
+		var obs string
+		if !exists {
+			obs = fmt.Sprintf("Error: Tool '%s' not found.", tc.Name)
+		} else {
+			var err error
+			obs, err = tool.Execute(ctx, tc.Args)
+			if err != nil {
+				obs = fmt.Sprintf("Error executing tool '%s': %v", tc.Name, err)
+			}
+		}
+		observations = append(observations, fmt.Sprintf("Observation %d (%s):\n%s", i+1, tc.Name, obs))
 	}
 
-	observation, err := tool.Execute(ctx, res.ToolArgs)
-	if err != nil {
-		observation = fmt.Sprintf("Error executing tool: %v", err)
-	}
-	a.History = append(a.History, provider.Message{Role: "user", Content: "Observation: " + observation})
+	fullObservation := strings.Join(observations, "\n\n")
+	a.History = append(a.History, provider.Message{Role: "user", Content: "Observations:\n" + fullObservation})
 
-	// Ensure status is Running for the returned result
 	res.Status = StatusRunning
 	return res, nil
 }
