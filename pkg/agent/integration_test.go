@@ -75,6 +75,10 @@ Action: propose_plan({"plan": "1. Research\n2. Implement"})
 		t.Logf("\n--- STEP %d ---", i)
 		res, err := a.Step(ctx, currentTask)
 		if err != nil {
+			// GRACEFUL SKIP ON LIVE RATE LIMITS
+			if strings.Contains(strings.ToLower(err.Error()), "429") {
+				t.Skip("Skipping live integration test: Rate limited by OpenRouter (429)")
+			}
 			t.Fatalf("Step %d failed: %v", i, err)
 		}
 		currentTask = "" // Clear task after first turn to allow ReAct loop to continue
@@ -86,6 +90,9 @@ Action: propose_plan({"plan": "1. Research\n2. Implement"})
 			t.Logf("[APPROVAL REQUIRED]: %d actions", len(res.ToolCalls))
 			res, err = a.Approve(ctx)
 			if err != nil {
+				if strings.Contains(strings.ToLower(err.Error()), "429") {
+					t.Skip("Skipping live integration test: Rate limited by OpenRouter (429)")
+				}
 				t.Fatalf("Approval failed: %v", err)
 			}
 		}
@@ -313,10 +320,11 @@ func TestIntegrationAutoRetry(t *testing.T) {
 	ctx := context.Background()
 
 	// Turn 1
-	res, err := a.Step(ctx, "Start task")
+	res, err := a.Step(ctx, "Start")
 	if err != nil {
 		t.Fatalf("Step 1 failed: %v", err)
 	}
+
 	if !strings.Contains(a.History[len(a.History)-1].Content, "Error: Tool 'broken_tool' not found") {
 		t.Errorf("Expected error observation, got: %s", a.History[len(a.History)-1].Content)
 	}
