@@ -43,6 +43,21 @@ func TestParseXML_MultiParam(t *testing.T) {
 	}
 }
 
+func TestParse_JSON(t *testing.T) {
+	input := `{"thought": "I am thinking in JSON.", "tool_calls": [{"name": "shell", "args": "ls"}]}`
+	thought, calls, err := Parse(input)
+	if err != nil {
+		t.Fatalf("JSON parse failed: %v", err)
+	}
+
+	if thought != "I am thinking in JSON." {
+		t.Errorf("Thought mismatch: %s", thought)
+	}
+	if len(calls) == 0 || calls[0].Name != "shell" {
+		t.Errorf("Tool call mismatch: %v", calls)
+	}
+}
+
 func TestParse_FallbackToThought(t *testing.T) {
 	input := "I am a direct answer without markers."
 	thought, calls, err := Parse(input)

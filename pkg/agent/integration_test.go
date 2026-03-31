@@ -177,7 +177,7 @@ func TestIntegrationPrivacyShield(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	task := "My server key is sk-TEST-1234. Please confirm it's safe."
+	task := "My server key is sk-TEST-1234. Please confirm it's safe and redact it properly."
 	_, err = a.Step(ctx, task)
 	if err != nil {
 		t.Fatalf("Integration step failed: %v", err)
