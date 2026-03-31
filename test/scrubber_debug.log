@@ -1,0 +1,11 @@
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe and redact it properly.
+--- RAW OUTPUT ---
+---SAFE--- My server key is sk-TEST-1234. ---END--- Please confirm it's safe and redact it properly. ---SAFE---
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe and redact it properly.
+--- RAW OUTPUT ---
+---SAFE---
+My server key is sk-TEST-1234. ---END---

@@ -1,0 +1,51 @@
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe.
+--- RAW OUTPUT ---
+---SAFE--- 
+My server key is [NAME] [EMAIL]. Please confirm it's safe. ---END---
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe.
+--- RAW OUTPUT ---
+---SAFE--- 
+My [EMAIL] key is [KEY]. ---END---
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe.
+--- RAW OUTPUT ---
+---SAFE---
+[NAME] [EMAIL] ---END---
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe.
+--- RAW OUTPUT ---
+---SAFE--- My server key is [NAME] [EMAIL], please confirm it's safe. ---END---
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe.
+--- RAW OUTPUT ---
+---SAFE--- My server key is [NAME], [EMAIL],. Please confirm it's safe. ---END---
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe.
+--- RAW OUTPUT ---
+---SAFE--- My server key is sk-TEST-[EMAIL]-1234. ---END---
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe.
+--- RAW OUTPUT ---
+---SAFE---
+My server key is sk-TEST-1234. Please confirm it's safe. ---END
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe and redact it properly.
+--- RAW OUTPUT ---
+---SAFE--- 
+---END--- 
+My server key is ---SK-TEST-1234---. ---PROPERLY--- redact it.
+
+--- ORIGINAL ---
+My server key is sk-TEST-1234. Please confirm it's safe and redact it properly.
+--- RAW OUTPUT ---
+---SAFE--- My server key is ---SAFE---. ---SAFE--- Please confirm it's ---SAFE--- and ---SAFE--- redact it properly. ---END---

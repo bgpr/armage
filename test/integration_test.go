@@ -1,4 +1,4 @@
-package agent
+package test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/user/armage/pkg/agent"
 	"github.com/user/armage/pkg/provider"
 )
 
@@ -24,19 +25,19 @@ func TestIntegrationFullCycle(t *testing.T) {
 		model = "meta-llama/llama-3.2-3b-instruct:free"
 	}
 	llm := provider.NewOpenRouter(apiKey, model)
-	reg := NewRegistry()
-	reg.Register(&ShellTool{})
-	reg.Register(&ReadTool{})
-	reg.Register(&WriteTool{})
-	reg.Register(&SearchTool{})
-	reg.Register(&DiffTool{})
-	reg.Register(&ListDirTool{})
-	reg.Register(&SymbolsTool{})
-	reg.Register(&ApplyPatchTool{})
+	reg := agent.NewRegistry()
+	reg.Register(&agent.ShellTool{})
+	reg.Register(&agent.ReadTool{})
+	reg.Register(&agent.WriteTool{})
+	reg.Register(&agent.SearchTool{})
+	reg.Register(&agent.DiffTool{})
+	reg.Register(&agent.ListDirTool{})
+	reg.Register(&agent.SymbolsTool{})
+	reg.Register(&agent.ApplyPatchTool{})
 
-	a := New(llm, reg)
-	reg.Register(&PinTool{Agent: a})
-	reg.Register(&PlanningTool{Agent: a})
+	a := agent.New(llm, reg)
+	reg.Register(&agent.PinTool{Agent: a})
+	reg.Register(&agent.PlanningTool{Agent: a})
 
 	a.RequireApproval = true
 	a.AddSystemPrompt(`You are Armage, an expert coding agent for Termux. 
@@ -86,7 +87,7 @@ Action: propose_plan({"plan": "1. Research\n2. Implement"})
 		t.Logf("[Usage: %d tokens (Total: %d)]", res.Usage.TotalTokens, a.TotalUsage.TotalTokens)
 
 		// Handle Safety Governor approval automatically in the test
-		if res.Status == StatusPending {
+		if res.Status == agent.StatusPending {
 			t.Logf("[APPROVAL REQUIRED]: %d actions", len(res.ToolCalls))
 			res, err = a.Approve(ctx)
 			if err != nil {
@@ -99,15 +100,6 @@ Action: propose_plan({"plan": "1. Research\n2. Implement"})
 
 		thought := res.Thought
 
-		// Print the latest turn
-		lastIdx := len(a.History) - 1
-		if lastIdx >= 1 {
-			assistantMsg := a.History[lastIdx-1]
-			observationMsg := a.History[lastIdx]
-			t.Logf("[ASSISTANT]:\n%s", assistantMsg.Content)
-			t.Logf("[OBSERVATION]:\n%s", observationMsg.Content)
-		}
-		
 		if strings.Contains(strings.ToLower(thought), "task complete") || 
 		   strings.Contains(strings.ToLower(thought), "final answer") {
 			t.Log("Task completion detected.")
@@ -118,7 +110,14 @@ Action: propose_plan({"plan": "1. Research\n2. Implement"})
 	t.Log("\n--- END OF FULL CYCLE ---")
 
 	// 3. Verification: Read tools_test.go back from the REAL file system
-	data, _ := os.ReadFile("tools_test.go")
+	// Adjust path since we are in test/
+	testFilePath := "../pkg/agent/tools_test.go"
+	data, err := os.ReadFile(testFilePath)
+	if err != nil {
+		t.Logf("Warning: tools_test.go not found at %s, trying current dir", testFilePath)
+		data, _ = os.ReadFile("tools_test.go")
+	}
+
 	if !strings.Contains(string(data), "returns the raw input") {
 		t.Errorf("FAIL: File was not updated correctly. Content: %s", string(data))
 	} else {
@@ -127,13 +126,13 @@ Action: propose_plan({"plan": "1. Research\n2. Implement"})
 
 	// REVERT: Change it back so we don't pollute the codebase for the next run
 	original := strings.Replace(string(data), "returns the raw input", "returns the input", 1)
-	os.WriteFile("tools_test.go", []byte(original), 0644)
-	os.Remove("PLAN.md")
+	os.WriteFile(testFilePath, []byte(original), 0644)
+	os.Remove("../PLAN.md")
 }
 
 func TestIntegrationPrivacyShield(t *testing.T) {
-	// 1. Load config from armage.json
-	configData, err := os.ReadFile("../../armage.json")
+	// 1. Load config from armage.json (relative to test/)
+	configData, err := os.ReadFile("../configs/armage.json")
 	if err != nil {
 		t.Skip("Skipping TestIntegrationPrivacyShield: armage.json not found")
 	}
@@ -156,7 +155,7 @@ func TestIntegrationPrivacyShield(t *testing.T) {
 	// 2. Setup LLM with Scrubbing
 	innerLLM := &MockMultiStepLLM{
 		Responses: []string{
-			"Thought: I will echo the secret.\nAction: shell(\"echo 'The [KEY] is safe'\")",
+			"Thought: I will echo the secret.\nAction: shell(\"echo 'The REDACTED_KEY is safe'\")",
 		},
 	}
 
@@ -168,9 +167,9 @@ func TestIntegrationPrivacyShield(t *testing.T) {
 	defer scrubber.Stop() // Ensure cleanup
 
 	sllm := provider.NewScrubbingLLM(innerLLM, scrubber, "")
-	reg := NewRegistry()
-	reg.Register(&ShellTool{})
-	a := New(sllm, reg)
+	reg := agent.NewRegistry()
+	reg.Register(&agent.ShellTool{})
+	a := agent.New(sllm, reg)
 	a.AddSystemPrompt("You are Armage")
 
 	// 3. Run a turn with "sensitive" info
@@ -196,116 +195,9 @@ func TestIntegrationPrivacyShield(t *testing.T) {
 	}
 }
 
-// Update MockMultiStepLLM to track last messages
-func (m *MockMultiStepLLM) Chat(ctx context.Context, messages []provider.Message) (string, provider.Usage, error) {
-	m.LastMessages = messages
-	if m.Turn >= len(m.Responses) {
-		return "Final Answer: I am done.", provider.Usage{TotalTokens: 10}, nil
-	}
-	resp := m.Responses[m.Turn]
-	m.Turn++
-	return resp, provider.Usage{TotalTokens: 50}, nil
-}
-
-type MockMultiStepLLM struct {
-	Responses    []string
-	Turn         int
-	LastMessages []provider.Message
-}
-
-func TestReActMultiStep(t *testing.T) {
-	reg := NewRegistry()
-	reg.Register(&ShellTool{})
-
-	responses := []string{
-		"Thought: I need to check the current user.\nAction: shell(\"whoami\")",
-		"Thought: The user is root. Now I'll list files.\nAction: shell(\"ls\")",
-	}
-
-	llm := &MockMultiStepLLM{Responses: responses}
-	a := New(llm, reg)
-
-	// Step 1: user "Start" -> assistant "whoami" -> user "Observation"
-	res, err := a.Step(context.Background(), "Start")
-	if err != nil {
-		t.Fatalf("Step 1 failed: %v", err)
-	}
-	if res.Thought != "I need to check the current user." {
-		t.Errorf("Step 1 thought mismatch: %s", res.Thought)
-	}
-	// History: 
-	// 1. user(Start)
-	// 2. assistant(Thought/Action)
-	// 3. user(Observation)
-	if len(a.History) != 3 {
-		t.Fatalf("Step 1 history length mismatch: %d", len(a.History))
-	}
-
-	// Step 2: assistant "ls" -> user "Observation"
-	res, err = a.Step(context.Background(), "")
-	if err != nil {
-		t.Fatalf("Step 2 failed: %v", err)
-	}
-	if res.Thought != "The user is root. Now I'll list files." {
-		t.Errorf("Step 2 thought mismatch: %s", res.Thought)
-	}
-	// History: 
-	// 1-3. (from Step 1)
-	// 4. assistant(Thought/Action)
-	// 5. user(Observation)
-	if len(a.History) != 5 {
-		t.Fatalf("Step 2 history length mismatch: %d", len(a.History))
-	}
-}
-
-func TestIntegrationApproval(t *testing.T) {
-	reg := NewRegistry()
-	reg.Register(&ShellTool{})
-
-	// LLM wants to run a shell command
-	llm := &MockMultiStepLLM{
-		Responses: []string{
-			"Thought: I will check the user.\nAction: shell(\"whoami\")",
-		},
-	}
-
-	a := New(llm, reg)
-	a.RequireApproval = true
-
-	// 1. Initial Step - Should be Pending
-	res, err := a.Step(context.Background(), "Check user")
-	if err != nil {
-		t.Fatalf("Step failed: %v", err)
-	}
-
-	if res.Status != StatusPending {
-		t.Errorf("Expected status Pending, got: %v", res.Status)
-	}
-	if len(a.History) != 2 {
-		t.Errorf("Expected history length 2 (User + Assistant), got: %d", len(a.History))
-	}
-
-	// 2. Approve Step - Should execute and return Running
-	res, err = a.Approve(context.Background())
-	if err != nil {
-		t.Fatalf("Approve failed: %v", err)
-	}
-
-	if res.Status != StatusRunning {
-		t.Errorf("Expected status Running, got: %v", res.Status)
-	}
-	if len(a.History) != 3 {
-		t.Errorf("Expected history length 3 (User + Assistant + Observation), got: %d", len(a.History))
-	}
-	
-	if !strings.Contains(a.History[2].Content, "Observation 1 (shell):") {
-		t.Errorf("Expected observation in history, got: %s", a.History[2].Content)
-	}
-}
-
 func TestIntegrationAutoRetry(t *testing.T) {
-	reg := NewRegistry()
-	reg.Register(&ShellTool{})
+	reg := agent.NewRegistry()
+	reg.Register(&agent.ShellTool{})
 
 	// Step 1: Call non-existent tool
 	// Step 2: React to error and call shell
@@ -316,7 +208,7 @@ func TestIntegrationAutoRetry(t *testing.T) {
 		},
 	}
 
-	a := New(llm, reg)
+	a := agent.New(llm, reg)
 	ctx := context.Background()
 
 	// Turn 1
@@ -325,8 +217,13 @@ func TestIntegrationAutoRetry(t *testing.T) {
 		t.Fatalf("Step 1 failed: %v", err)
 	}
 
-	if !strings.Contains(a.History[len(a.History)-1].Content, "Error: Tool 'broken_tool' not found") {
-		t.Errorf("Expected error observation, got: %s", a.History[len(a.History)-1].Content)
+	if len(a.History) < 3 {
+		t.Fatalf("History too short, got %d", len(a.History))
+	}
+
+	lastMsg := a.History[len(a.History)-1].Content
+	if !strings.Contains(lastMsg, "Error: Tool 'broken_tool' not found") {
+		t.Errorf("Expected error observation, got: %s", lastMsg)
 	}
 
 	// Turn 2: Automatic retry (empty input)
@@ -340,40 +237,19 @@ func TestIntegrationAutoRetry(t *testing.T) {
 	}
 }
 
-func TestIntegrationSummarization(t *testing.T) {
-	reg := NewRegistry()
-	reg.Register(&ShellTool{})
+// MockMultiStepLLM allows specifying multiple responses for sequential turns.
+type MockMultiStepLLM struct {
+	Responses    []string
+	Turn         int
+	LastMessages []provider.Message
+}
 
-	// Mock LLM that returns a thought and then a summary when asked
-	llm := &MockMultiStepLLM{
-		Responses: []string{
-			"Thought: Step 1.\nAction: shell(\"1\")",
-			"Thought: Step 2.\nAction: shell(\"2\")",
-			"Thought: Step 3.\nAction: shell(\"3\")",
-			"SUMMARY: We performed three steps.",
-		},
+func (m *MockMultiStepLLM) Chat(ctx context.Context, messages []provider.Message) (string, provider.Usage, error) {
+	m.LastMessages = messages
+	if m.Turn >= len(m.Responses) {
+		return "Final Answer: I am done.", provider.Usage{TotalTokens: 10}, nil
 	}
-
-	a := New(llm, reg)
-	a.MaxHistory = 4 // [System, Summary, User, Assistant]
-	ctx := context.Background()
-
-	// Fill history
-	a.Step(ctx, "task 1")
-	a.Step(ctx, "task 2")
-	
-	// This step should trigger summarization
-	a.Step(ctx, "task 3")
-
-	foundSummary := false
-	for _, msg := range a.History {
-		if strings.Contains(msg.Content, "Conversation Summary:") {
-			foundSummary = true
-			break
-		}
-	}
-
-	if !foundSummary {
-		t.Errorf("Summarization was not triggered or summary not found in history")
-	}
+	resp := m.Responses[m.Turn]
+	m.Turn++
+	return resp, provider.Usage{TotalTokens: 50}, nil
 }

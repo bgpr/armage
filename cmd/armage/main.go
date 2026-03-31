@@ -3,58 +3,31 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/user/armage/pkg/agent"
+	"github.com/user/armage/pkg/config"
 	"github.com/user/armage/pkg/provider"
 )
 
-type Config struct {
-	OpenRouterKey   string `json:"openrouter_key"`
-	OpenRouterModel string `json:"openrouter_model"`
-	LocalScrubber   struct {
-		Enabled    bool   `json:"enabled"`
-		URL        string `json:"url"`
-		BinaryPath string `json:"binary_path"`
-		ModelPath  string `json:"model_path"`
-	} `json:"local_scrubber"`
-}
-
 func main() {
 	// 1. Load Configuration
-	config := Config{
-		OpenRouterModel: "meta-llama/llama-3.2-3b-instruct:free",
-	}
-	config.LocalScrubber.URL = "http://localhost:8080/v1/chat/completions"
-
-	configData, err := os.ReadFile("armage.json")
-	if err == nil {
-		json.Unmarshal(configData, &config)
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Environment variable overrides
-	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-		config.OpenRouterKey = apiKey
-	}
-	if model := os.Getenv("OPENROUTER_MODEL"); model != "" {
-		config.OpenRouterModel = model
-	}
-	if scrubberURL := os.Getenv("LOCAL_SCRUBBER_URL"); scrubberURL != "" {
-		config.LocalScrubber.URL = scrubberURL
-		config.LocalScrubber.Enabled = true
-	}
-
-	if config.OpenRouterKey == "" {
+	if cfg.OpenRouterKey == "" {
 		fmt.Println("Error: OpenRouter API key is not set in armage.json or via environment.")
 		os.Exit(1)
 	}
 
 	// 2. Setup Provider and Registry
 	var llm provider.LLM
-	orProvider := provider.NewOpenRouter(config.OpenRouterKey, config.OpenRouterModel)
+	orProvider := provider.NewOpenRouter(cfg.OpenRouterKey, cfg.OpenRouterModel)
 	
 	// Fetch free models to enable rotation
 	fmt.Print("Fetching available free models for rotation... ")
@@ -67,12 +40,12 @@ func main() {
 	llm = orProvider
 
 	// Wrap with Local Scrubber if enabled
-	if config.LocalScrubber.Enabled {
-		fmt.Printf("Privacy Shield: Enabled (Local scrubbing via %s)\n", config.LocalScrubber.URL)
+	if cfg.LocalScrubber.Enabled {
+		fmt.Printf("Privacy Shield: Enabled (Local scrubbing via %s)\n", cfg.LocalScrubber.URL)
 		scrubber := &provider.LocalScrubber{
-			BaseURL:    config.LocalScrubber.URL,
-			BinaryPath: config.LocalScrubber.BinaryPath,
-			ModelPath:  config.LocalScrubber.ModelPath,
+			BaseURL:    cfg.LocalScrubber.URL,
+			BinaryPath: cfg.LocalScrubber.BinaryPath,
+			ModelPath:  cfg.LocalScrubber.ModelPath,
 		}
 		llm = provider.NewScrubbingLLM(llm, scrubber, ".armage_scrub_cache.json")
 	}
@@ -221,7 +194,7 @@ Action: list_dir({"path": ".", "depth": 1})
 			if len(res.ToolCalls) == 0 {
 				fmt.Println("\n(Agent paused without action. Nudging...)")
 				// REINFORCE GOAL: Re-inject the original task during nudges
-				nudgeMsg := fmt.Sprintf("Please continue working on the task: %s\nProvide your next Action or your Final Answer.", input)
+				nudgeMsg := fmt.Sprintf("Please continue working on the task: %s\nProvide your next Action or your Final Answer. Remember to use the Action: ToolName() format.", input)
 				res, err = a.StepTransient(ctx, nudgeMsg)
 				if err != nil {
 					fmt.Printf("Error during nudge: %v\n", err)
