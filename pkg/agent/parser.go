@@ -16,34 +16,52 @@ var (
 	xmlParamRegex = regexp.MustCompile(`(?s)<parameter=(\w+)>(.*?)</parameter>`)
 )
 
-// ToolCall represents a single tool invocation request.
-type ToolCall struct {
-	Name string `json:"name"`
-	Args string `json:"args"`
-}
-
 // Parse extracts the Thought and all Actions (tool calls) from the LLM's response.
-// It supports ReAct format (with balanced parentheses) and standard XML tool calls.
+// It supports ReAct format, standard XML, and pure JSON responses.
 func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
-	// 1. Extract Thought
+	trimmedInput := strings.TrimSpace(input)
+
+	// 1. Try to parse as a pure JSON object (Modern/Structured models)
+	if strings.HasPrefix(trimmedInput, "{") && strings.HasSuffix(trimmedInput, "}") {
+		var jsonRes struct {
+			Thought   string     `json:"thought"`
+			Action    string     `json:"action"`
+			ToolCalls []ToolCall `json:"tool_calls"`
+		}
+		if err := json.Unmarshal([]byte(trimmedInput), &jsonRes); err == nil {
+			thought = jsonRes.Thought
+			if jsonRes.Action != "" {
+				// Try to parse the action string (e.g. "tool(args)")
+				_, actionCalls, _ := Parse("Action: " + jsonRes.Action)
+				toolCalls = append(toolCalls, actionCalls...)
+			}
+			if len(jsonRes.ToolCalls) > 0 {
+				toolCalls = append(toolCalls, jsonRes.ToolCalls...)
+			}
+			if thought != "" || len(toolCalls) > 0 {
+				return thought, toolCalls, nil
+			}
+		}
+	}
+
+	// 2. Extract Thought using markers
 	thoughtMatch := thoughtRegex.FindStringSubmatch(input)
 	if len(thoughtMatch) > 1 {
 		thought = strings.TrimSpace(thoughtMatch[1])
 	}
 
-	// 2. Extract ReAct Actions (Balanced Parentheses)
-	// We look for "Action: Name(" and then scan for the matching closing ")"
+	// 3. Extract ReAct Actions (Balanced Parentheses)
 	lines := strings.Split(input, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "Action:") {
 			actionPart := strings.TrimPrefix(line, "Action:")
 			actionPart = strings.TrimSpace(actionPart)
-			
+
 			openParenIdx := strings.Index(actionPart, "(")
 			if openParenIdx > 0 {
 				toolName := strings.TrimSpace(actionPart[:openParenIdx])
-				
+
 				// Scan for balanced closing paren
 				depth := 0
 				closingParenIdx := -1
@@ -58,7 +76,7 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 						}
 					}
 				}
-				
+
 				if closingParenIdx > openParenIdx {
 					args := actionPart[openParenIdx+1 : closingParenIdx]
 					toolCalls = append(toolCalls, ToolCall{
@@ -70,19 +88,16 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 		}
 	}
 
-	// 3. Extract XML Tool Calls (Multi-parameter support)
+	// 4. Extract XML Tool Calls
 	xmlBlocks := xmlBlockRegex.FindAllStringSubmatch(input, -1)
 	for _, block := range xmlBlocks {
 		content := block[1]
-		
-		// Find Function Name
 		funcMatch := xmlFuncRegex.FindStringSubmatch(content)
 		if len(funcMatch) < 2 {
 			continue
 		}
 		funcName := funcMatch[1]
 
-		// Extract all Parameters
 		params := make(map[string]interface{})
 		paramMatches := xmlParamRegex.FindAllStringSubmatch(content, -1)
 		for _, pm := range paramMatches {
@@ -93,7 +108,6 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 			}
 		}
 
-		// Reconstruct as JSON string
 		argsJSON, _ := json.Marshal(params)
 		toolCalls = append(toolCalls, ToolCall{
 			Name: funcName,
@@ -101,7 +115,7 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 		})
 	}
 
-	// 4. Fallback: If no markers but looks like tool usage (e.g. no Thought tag)
+	// 5. Fallback: If no markers but looks like a final answer
 	if thought == "" && len(toolCalls) == 0 {
 		thought = strings.TrimSpace(input)
 	}
@@ -112,3 +126,4 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 
 	return thought, toolCalls, nil
 }
+

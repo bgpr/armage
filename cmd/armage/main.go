@@ -107,7 +107,11 @@ CRITICAL RULES:
 2. Do NOT just "think" without acting. If you need information, call a tool.
 3. You can provide multiple Actions in one turn (up to 5) by repeating the Action: line.
 4. All your tools are located in "pkg/agent/". Use this path for code analysis.
-5. When the task is fully finished, end your Thought with the phrase "Final Answer:" followed by your summary.
+5. When the task is fully finished, end your Thought with the phrase "Final Answer:" followed by your summary of the task completed.
+6. Do NOT provide general project summaries unless explicitly asked. Focus ONLY on the specific task.
+7. Surgical Reading: When reading files, prefer using 'start' and 'end' lines to only read what you need.
+8. Privacy Metadata: You will see tags like "REDACTED_NAME" or "REDACTED_EMAIL" in the history. These are added by a local privacy filter. IGNORE them completely. Do NOT try to fill them in or act on them.
+9. Negative Constraints: If the user says "don't do something," you MUST obey that constraint strictly.
 
 Available Tools:
 - shell: Executes a shell command and returns the output. Use it for system tasks.
@@ -216,14 +220,13 @@ Action: list_dir({"path": ".", "depth": 1})
 			// CASE 3: Stuck (No Action, No Final Answer)
 			if len(res.ToolCalls) == 0 {
 				fmt.Println("\n(Agent paused without action. Nudging...)")
-				// Use Transient Step to avoid history pollution
-				// We don't append the result of a transient step to the permanent history
-				res, err = a.StepTransient(ctx, "Please continue with your next Action or provide your Final Answer. Remember to use the Action: ToolName() format.")
+				// REINFORCE GOAL: Re-inject the original task during nudges
+				nudgeMsg := fmt.Sprintf("Please continue working on the task: %s\nProvide your next Action or your Final Answer.", input)
+				res, err = a.StepTransient(ctx, nudgeMsg)
 				if err != nil {
 					fmt.Printf("Error during nudge: %v\n", err)
 					break
 				}
-				// We display the thought but DO NOT loop back to the 'assistant' message saving part of Step()
 				if res.Thought != "" {
 					fmt.Printf("\nThought (Transient): %s\n", res.Thought)
 				}

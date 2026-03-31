@@ -17,6 +17,12 @@ const (
 	StatusPending AgentStatus = "pending" // Waiting for approval
 )
 
+// ToolCall represents a single tool invocation request.
+type ToolCall struct {
+	Name string `json:"name"`
+	Args string `json:"args"`
+}
+
 // StepResult contains the outcome of a single turn.
 type StepResult struct {
 	Thought   string         `json:"thought"`

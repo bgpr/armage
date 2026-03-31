@@ -135,9 +135,15 @@ func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usag
 			}
 
 			lastErr = err
-			// Check for 429 (Too Many Requests)
-			if strings.Contains(strings.ToLower(err.Error()), "429") {
-				fmt.Printf("\n[Rate Limited (429) on %s] Retrying in %v... (Attempt %d/3)\n", currentModel, delay, retry+1)
+			errStr := strings.ToLower(err.Error())
+
+			// Check for 429 (Too Many Requests) or 403 (Forbidden/Provider Error)
+			if strings.Contains(errStr, "429") || strings.Contains(errStr, "403") {
+				reason := "Rate Limited"
+				if strings.Contains(errStr, "403") {
+					reason = "Provider Error"
+				}
+				fmt.Printf("\n[%s (%s) on %s] Retrying in %v... (Attempt %d/3)\n", reason, errStr, currentModel, delay, retry+1)
 				select {
 				case <-ctx.Done():
 					return "", Usage{}, ctx.Err()
@@ -147,13 +153,14 @@ func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usag
 				}
 			}
 			
-			// Non-429 error, don't retry inner loop
+			// Non-retriable error
 			break
 		}
 
-		// If it's a 429 after 3 retries, rotate to the next model in the list
-		if strings.Contains(strings.ToLower(lastErr.Error()), "429") && i < len(modelsToTry)-1 {
-			fmt.Printf("\n[Model Switch] Rotating from %s to next available free model due to persistent rate limiting.\n", currentModel)
+		// If it's a 429/403 after 3 retries, rotate to the next model in the list
+		errStr := strings.ToLower(lastErr.Error())
+		if (strings.Contains(errStr, "429") || strings.Contains(errStr, "403")) && i < len(modelsToTry)-1 {
+			fmt.Printf("\n[Model Switch] Rotating from %s due to persistent provider error/limit.\n", currentModel)
 			continue
 		}
 

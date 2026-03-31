@@ -117,7 +117,7 @@ func (l *LocalScrubber) Scrub(ctx context.Context, text string) (string, error) 
 	}
 
 	// ULTRA-SIMPLE PROMPT: No instruction tags, just a direct order.
-	prompt := fmt.Sprintf(`Rewrite the following text. Replace any names, emails, or keys with [NAME], [EMAIL], or [KEY]. 
+	prompt := fmt.Sprintf(`Rewrite the following text. Replace any names, emails, or keys with REDACTED_NAME, REDACTED_EMAIL, or REDACTED_KEY. 
 Output the rewritten text between ---SAFE--- and ---END--- markers. 
 Do not explain.
 
