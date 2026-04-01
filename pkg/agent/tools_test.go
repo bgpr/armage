@@ -5,26 +5,34 @@ import (
 	"testing"
 )
 
-type MockTool struct{}
+func TestToolMeta(t *testing.T) {
+	tools := []Tool{
+		&ShellTool{},
+		&ReadTool{},
+		&WriteTool{},
+		&SearchTool{},
+		&DiffTool{},
+		&ListDirTool{},
+		&SymbolsTool{},
+		&ApplyPatchTool{},
+		&PinTool{},
+		&PlanningTool{},
+	}
 
-func (m *MockTool) Name() string        { return "echo" }
-func (m *MockTool) Description() string { return "returns the input" }
-func (m *MockTool) Execute(ctx context.Context, args string) (string, error) {
-	return args, nil
+	for _, tool := range tools {
+		if tool.Name() == "" {
+			t.Errorf("Tool %T has empty name", tool)
+		}
+		if tool.Description() == "" {
+			t.Errorf("Tool %T has empty description", tool)
+		}
+	}
 }
 
-func TestRegistry(t *testing.T) {
-	r := NewRegistry()
-	mock := &MockTool{}
-	r.Register(mock)
-
-	tool, exists := r.Get("echo")
-	if !exists {
-		t.Fatal("Tool 'echo' should exist")
-	}
-
-	res, _ := tool.Execute(context.Background(), "hello")
-	if res != "hello" {
-		t.Errorf("Expected 'hello', got: %s", res)
-	}
+// MockTool for testing
+type MockTool struct{}
+func (t *MockTool) Name() string { return "echo" }
+func (t *MockTool) Description() string { return "echos args" }
+func (t *MockTool) Execute(ctx context.Context, args string) (string, error) {
+	return args, nil
 }

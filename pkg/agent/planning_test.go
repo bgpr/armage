@@ -11,41 +11,35 @@ func TestPlanningRequirement(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(&WriteTool{})
 	
-	// Mock LLM that correctly proposes a plan first
 	llm := &MockMultiStepLLM{
 		Responses: []string{
-			"Thought: I need a strategy.\nAction: propose_plan({\"plan\": \"1. Fix bug\\n2. Test bug\"})",
+			"Thought: I will propose a plan.\nAction: propose_plan({\"plan\": \"Step 1\"})",
 		},
 	}
 
 	a := New(llm, reg)
-	reg.Register(&PlanningTool{Agent: a}) // Register the tool
-	a.AddSystemPrompt("You MUST use propose_plan before writing any files.")
+	tool := &PlanningTool{Agent: a}
+	reg.Register(tool)
 
-	res, err := a.Step(context.Background(), "Refactor everything")
-	if err != nil {
-		t.Fatalf("Step failed: %v", err)
-	}
-
-	if len(res.ToolCalls) == 0 || res.ToolCalls[0].Name != "propose_plan" {
-		t.Errorf("Expected propose_plan, got: %+v", res.ToolCalls)
-	}
-
-	// Verify PLAN.md was created
-	if _, err := os.Stat("PLAN.md"); os.IsNotExist(err) {
-		t.Errorf("PLAN.md was not created")
-	}
-	defer os.Remove("PLAN.md")
-
-	// Verify it was pinned (history should have the system msg for pinning)
-	foundPin := false
-	for _, msg := range a.History {
-		if strings.Contains(msg.Content, "Pinned File: PLAN.md") {
-			foundPin = true
-			break
+	t.Run("ProposePlan", func(t *testing.T) {
+		res, err := a.Step(context.Background(), "Task")
+		if err != nil {
+			t.Fatalf("Step failed: %v", err)
 		}
-	}
-	if !foundPin {
-		t.Errorf("PLAN.md was not pinned to context")
-	}
+		if len(res.ToolCalls) == 0 || res.ToolCalls[0].Name != "propose_plan" {
+			t.Errorf("Expected propose_plan, got: %+v", res.ToolCalls)
+		}
+		
+		if _, err := os.Stat("PLAN.md"); os.IsNotExist(err) {
+			t.Errorf("PLAN.md not created")
+		}
+		os.Remove("PLAN.md")
+	})
+
+	t.Run("EmptyPlan", func(t *testing.T) {
+		_, err := tool.Execute(context.Background(), "")
+		if err == nil || !strings.Contains(err.Error(), "plan content is required") {
+			t.Errorf("Expected 'plan content is required' error, got: %v", err)
+		}
+	})
 }

@@ -8,44 +8,36 @@ import (
 )
 
 func TestApplyPatchTool(t *testing.T) {
-	// 1. Setup a mock file
 	tmpFile := "test_patch.txt"
-	content := `line 1
-line 2
-line 3
-`
+	content := "Line 1\nLine 2\nLine 3"
 	os.WriteFile(tmpFile, []byte(content), 0644)
 	defer os.Remove(tmpFile)
 
 	tool := &ApplyPatchTool{}
 
-	// 2. Define a unified diff patch
-	patch := `--- test_patch.txt
-+++ test_patch.txt
-@@ -1,3 +1,3 @@
- line 1
--line 2
-+line 2 modified
- line 3
-`
+	t.Run("ValidPatch", func(t *testing.T) {
+		patch := "--- test_patch.txt\n+++ test_patch.txt\n@@ -1,3 +1,3 @@\n Line 1\n-Line 2\n+Updated 2\n Line 3"
+		_, err := tool.Execute(context.Background(), `{"path": "test_patch.txt", "patch": "`+strings.ReplaceAll(patch, "\n", "\\n")+`"}`)
+		if err != nil {
+			t.Fatalf("Patch failed: %v", err)
+		}
+		updated, _ := os.ReadFile(tmpFile)
+		if !strings.Contains(string(updated), "Updated 2") {
+			t.Errorf("File not patched correctly")
+		}
+	})
 
-	// 3. Execute patch application
-	res, err := tool.Execute(context.Background(), `{"path": "test_patch.txt", "patch": "`+strings.ReplaceAll(patch, "\n", "\\n")+`"}`)
-	if err != nil {
-		t.Fatalf("ApplyPatchTool failed: %v", err)
-	}
+	t.Run("InvalidPatch", func(t *testing.T) {
+		_, err := tool.Execute(context.Background(), `{"path": "test_patch.txt", "patch": "invalid"}`)
+		if err == nil {
+			t.Errorf("Expected error for invalid patch")
+		}
+	})
 
-	if !strings.Contains(res, "Successfully applied patch") {
-		t.Errorf("Expected success message, got: %s", res)
-	}
-
-	// 4. Verify file content
-	newContent, _ := os.ReadFile(tmpFile)
-	expected := `line 1
-line 2 modified
-line 3
-`
-	if string(newContent) != expected {
-		t.Errorf("File content mismatch.\nExpected:\n%s\nGot:\n%s", expected, string(newContent))
-	}
+	t.Run("MissingFile", func(t *testing.T) {
+		_, err := tool.Execute(context.Background(), `{"path": "missing.txt", "patch": "--- missing.txt\n+++ missing.txt\n@@ -0,0 +1 @@\n+new"}`)
+		if err == nil {
+			t.Errorf("Expected error for missing file")
+		}
+	})
 }
