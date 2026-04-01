@@ -190,7 +190,8 @@ TEXT:
 	clean = strings.TrimSpace(clean)
 
 	// Final Fallback: If it's empty or looks like a refusal, use original
-	if len(clean) < 2 || strings.Contains(strings.ToLower(clean), "i cannot") {
+	lowered := strings.ToLower(clean)
+	if len(clean) < 2 || strings.Contains(lowered, "i cannot") || strings.Contains(lowered, "i refuse") || strings.Contains(lowered, "i'm sorry") {
 		return text, nil
 	}
 
@@ -240,6 +241,10 @@ func (s *ScrubbingLLM) saveCache() {
 	if err == nil {
 		os.WriteFile(s.cachePath, data, 0644)
 	}
+}
+
+func (s *ScrubbingLLM) Model() string {
+	return s.Inner.Model()
 }
 
 func (s *ScrubbingLLM) Chat(ctx context.Context, messages []Message) (string, Usage, error) {

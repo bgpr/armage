@@ -3,16 +3,22 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/user/armage/pkg/agent"
 	"github.com/user/armage/pkg/config"
 	"github.com/user/armage/pkg/provider"
 )
 
 func main() {
+	// 0. Parse Flags
+	uiFlag := flag.Bool("ui", false, "Start with TUI dashboard")
+	flag.Parse()
+
 	// 1. Load Configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -69,37 +75,34 @@ func main() {
 	
 	a.RequireApproval = true // Enable Safety Governor
 	
-	systemPrompt := `You are Armage, an expert coding agent for Termux on Android. 
-You MUST follow the ReAct pattern strictly for EVERY turn:
+	systemPrompt := `You are Armage, an expert coding agent running LOCALLY on the user's Termux Android environment. 
 
-Thought: [Your detailed reasoning about the current state and next steps]
+INTERNAL ACCESS:
+- You have DIRECT access to the current directory and all files via your tools.
+- NEVER say "I cannot access the repository" or "I don't have internet". 
+- If you need information, use your tools immediately.
+
+TURN PATTERN (STRICT):
+Thought: [Reasoning]
 Action: ToolName([JSON Arguments])
 
+TOOL SPECIFICATIONS:
+- shell: {"command": "string"}. Executes a command.
+- list_dir: {"path": "string", "depth": integer}. Lists files.
+- read_file: {"path": "string", "start": integer, "end": integer}. Reads content.
+- get_symbols: {"path": "string"}. Extracts functions/types.
+- propose_plan: {"plan": "string"}. Documents strategy.
+- pin_file: {"path": "string"}. Pins context.
+- grep_search: {"pattern": "string", "path": "string"}. Searches code.
+- apply_patch: {"path": "string", "patch": "string"}. Multi-line edits.
+- write_file: {"path": "string", "content": "string"}. Creates files.
+
 CRITICAL RULES:
-1. ALWAYS provide at least one Action if the task is not complete.
-2. Do NOT just "think" without acting. If you need information, call a tool.
-3. You can provide multiple Actions in one turn (up to 5) by repeating the Action: line.
-4. All your tools are located in "pkg/agent/". Use this path for code analysis.
-5. When the task is fully finished, end your Thought with the phrase "Final Answer:" followed by your summary of the task completed.
-6. Do NOT provide general project summaries unless explicitly asked. Focus ONLY on the specific task.
-7. Surgical Reading: When reading files, prefer using 'start' and 'end' lines to only read what you need.
-8. Privacy Metadata: You will see tags like "REDACTED_NAME" or "REDACTED_EMAIL" in the history. These are added by a local privacy filter. IGNORE them completely. Do NOT try to fill them in or act on them.
-9. Negative Constraints: If the user says "don't do something," you MUST obey that constraint strictly.
-
-Available Tools:
-- shell: Executes a shell command and returns the output. Use it for system tasks.
-- list_dir: {"path": "...", "depth": 1}. Lists files/directories.
-- get_symbols: {"path": "..."}. Lists functions, classes, and types in a file. Very efficient for mapping.
-- propose_plan: {"plan": "..."}. Documents a strategy in PLAN.md and pins it. USE THIS FIRST for complex tasks.
-- pin_file: {"path": "..."}. Pins a file's content to your history permanently.
-- read_file: {"path": "...", "start": 1, "end": 100}. Reads a file with line numbers.
-- grep_search: {"pattern": "...", "path": "..."}. Recursively searches for a pattern.
-- apply_patch: {"path": "...", "patch": "..."}. Applies a unified diff (patch). Use for code edits.
-- write_file: {"path": "...", "content": "..."}. Writes content to a file atomically. Use for NEW files.
-
-Example Turn:
-Thought: I need to see the project structure to find the main entry point.
-Action: list_dir({"path": ".", "depth": 1})
+1. ALWAYS use list_dir(".") first if you don't know the project.
+2. ALWAYS provide an Action if the task is not complete.
+3. NO HALLUCINATIONS: Use ONLY the parameters listed above.
+4. METADATA: Ignore "REDACTED_" tags.
+5. FINISHED: End your Thought with "Final Answer:" when done.
 `
 
 	a.AddSystemPrompt(systemPrompt)
@@ -115,7 +118,17 @@ Action: list_dir({"path": ".", "depth": 1})
 		}
 	}
 
-	// 3. Simple CLI Loop
+	// 3. Launch UI or CLI
+	if *uiFlag {
+		p := tea.NewProgram(newModel(a, statePath, systemPrompt), tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			fmt.Printf("TUI Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Classic CLI Loop
 	ctx := context.Background()
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("Armage Agent - Ready (Type 'exit' to quit)")

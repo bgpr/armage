@@ -20,4 +20,5 @@ type Message struct {
 // LLM is the interface for different AI providers.
 type LLM interface {
 	Chat(ctx context.Context, messages []Message) (string, Usage, error)
+	Model() string
 }

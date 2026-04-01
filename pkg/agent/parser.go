@@ -2,45 +2,65 @@ package agent
 
 import (
 	"encoding/json"
-	"errors"
 	"regexp"
 	"strings"
 )
 
 var (
-	thoughtRegex = regexp.MustCompile(`(?s)Thought:\s*(.*?)(?:\nAction:|\n<tool_call>|$)`)
-	actionRegex  = regexp.MustCompile(`Action:\s*(\w+)\((.*?)\)`)
-	// Broader XML match to catch the whole block
+	thoughtRegex  = regexp.MustCompile(`(?s)Thought:\s*(.*?)(?:\nAction:|\n<tool_call>|$)`)
+	actionRegex   = regexp.MustCompile(`Action:\s*(\w+)\((.*?)\)`)
 	xmlBlockRegex = regexp.MustCompile(`(?s)<tool_call>(.*?)</tool_call>`)
 	xmlFuncRegex  = regexp.MustCompile(`<function=(\w+)>`)
 	xmlParamRegex = regexp.MustCompile(`(?s)<parameter=(\w+)>(.*?)</parameter>`)
+	jsonBlockRegex = regexp.MustCompile(`(?s)\{.*\}`)
 )
 
 // Parse extracts the Thought and all Actions (tool calls) from the LLM's response.
-// It supports ReAct format, standard XML, and pure JSON responses.
 func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 	trimmedInput := strings.TrimSpace(input)
 
-	// 1. Try to parse as a pure JSON object (Modern/Structured models)
-	if strings.HasPrefix(trimmedInput, "{") && strings.HasSuffix(trimmedInput, "}") {
-		var jsonRes struct {
-			Thought   string     `json:"thought"`
-			Action    string     `json:"action"`
-			ToolCalls []ToolCall `json:"tool_calls"`
-		}
-		if err := json.Unmarshal([]byte(trimmedInput), &jsonRes); err == nil {
-			thought = jsonRes.Thought
-			if jsonRes.Action != "" {
-				// Try to parse the action string (e.g. "tool(args)")
-				_, actionCalls, _ := Parse("Action: " + jsonRes.Action)
+	// 1. Try to extract and parse a JSON block (Flexible JSON handling)
+	if jsonMatch := jsonBlockRegex.FindString(trimmedInput); jsonMatch != "" {
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonMatch), &raw); err == nil {
+			// Extract Thought
+			if t, ok := raw["thought"].(string); ok { thought = t }
+			if t, ok := raw["Thought"].(string); ok { thought = t }
+
+			// Extract Actions (Standard Format)
+			if tcRaw, ok := raw["tool_calls"].([]interface{}); ok {
+				for _, item := range tcRaw {
+					if m, ok := item.(map[string]interface{}); ok {
+						name, _ := m["name"].(string)
+						args, _ := m["args"].(string)
+						if name != "" {
+							toolCalls = append(toolCalls, ToolCall{Name: name, Args: args})
+						}
+					}
+				}
+			}
+
+			// Extract Actions (Fuzzy Format: "Action": [{"pattern": "..."}])
+			if actRaw, ok := raw["Action"].([]interface{}); ok {
+				for _, item := range actRaw {
+					if m, ok := item.(map[string]interface{}); ok {
+						// Infer tool name from keys
+						name := "shell" 
+						if _, ok := m["pattern"]; ok { name = "grep_search" }
+						if _, ok := m["path"]; ok && name == "shell" { name = "list_dir" }
+						
+						argsBytes, _ := json.Marshal(m)
+						toolCalls = append(toolCalls, ToolCall{Name: name, Args: string(argsBytes)})
+					}
+				}
+			} else if actStr, ok := raw["Action"].(string); ok {
+				// Nested ReAct style inside JSON
+				_, actionCalls, _ := Parse("Action: " + actStr)
 				toolCalls = append(toolCalls, actionCalls...)
 			}
-			if len(jsonRes.ToolCalls) > 0 {
-				toolCalls = append(toolCalls, jsonRes.ToolCalls...)
-			}
-			if thought != "" || len(toolCalls) > 0 {
-				return thought, toolCalls, nil
-			}
+		}
+		if thought != "" || len(toolCalls) > 0 {
+			return stripInstructions(thought), toolCalls, nil
 		}
 	}
 
@@ -55,34 +75,20 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "Action:") {
-			actionPart := strings.TrimPrefix(line, "Action:")
-			actionPart = strings.TrimSpace(actionPart)
-
+			actionPart := strings.TrimSpace(strings.TrimPrefix(line, "Action:"))
 			openParenIdx := strings.Index(actionPart, "(")
 			if openParenIdx > 0 {
 				toolName := strings.TrimSpace(actionPart[:openParenIdx])
-
-				// Scan for balanced closing paren
-				depth := 0
-				closingParenIdx := -1
+				depth, closingParenIdx := 0, -1
 				for i := openParenIdx; i < len(actionPart); i++ {
-					if actionPart[i] == '(' {
-						depth++
-					} else if actionPart[i] == ')' {
+					if actionPart[i] == '(' { depth++ } else if actionPart[i] == ')' {
 						depth--
-						if depth == 0 {
-							closingParenIdx = i
-							break
-						}
+						if depth == 0 { closingParenIdx = i; break }
 					}
 				}
-
 				if closingParenIdx > openParenIdx {
 					args := actionPart[openParenIdx+1 : closingParenIdx]
-					toolCalls = append(toolCalls, ToolCall{
-						Name: toolName,
-						Args: strings.TrimSpace(args),
-					})
+					toolCalls = append(toolCalls, ToolCall{Name: toolName, Args: strings.TrimSpace(args)})
 				}
 			}
 		}
@@ -93,37 +99,33 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 	for _, block := range xmlBlocks {
 		content := block[1]
 		funcMatch := xmlFuncRegex.FindStringSubmatch(content)
-		if len(funcMatch) < 2 {
-			continue
-		}
+		if len(funcMatch) < 2 { continue }
 		funcName := funcMatch[1]
-
 		params := make(map[string]interface{})
 		paramMatches := xmlParamRegex.FindAllStringSubmatch(content, -1)
 		for _, pm := range paramMatches {
-			if len(pm) > 2 {
-				key := pm[1]
-				val := strings.TrimSpace(pm[2])
-				params[key] = val
-			}
+			if len(pm) > 2 { params[pm[1]] = strings.TrimSpace(pm[2]) }
 		}
-
 		argsJSON, _ := json.Marshal(params)
-		toolCalls = append(toolCalls, ToolCall{
-			Name: funcName,
-			Args: strings.TrimSpace(string(argsJSON)),
-		})
+		toolCalls = append(toolCalls, ToolCall{Name: funcName, Args: strings.TrimSpace(string(argsJSON))})
 	}
 
-	// 5. Fallback: If no markers but looks like a final answer
-	if thought == "" && len(toolCalls) == 0 {
-		thought = strings.TrimSpace(input)
+	if thought == "" && len(toolCalls) == 0 { 
+		thought = strings.TrimSpace(input) 
 	}
-
-	if thought == "" && len(toolCalls) == 0 {
-		return "", nil, errors.New("no Thought or Action found in input")
-	}
-
-	return thought, toolCalls, nil
+	
+	return stripInstructions(thought), toolCalls, nil
 }
 
+func stripInstructions(text string) string {
+	placeholders := []string{
+		"[Your detailed reasoning about the current state and next steps]",
+		"Action: ToolName([JSON Arguments])",
+		"Thought: [Your detailed reasoning",
+	}
+	clean := text
+	for _, p := range placeholders {
+		clean = strings.ReplaceAll(clean, p, "")
+	}
+	return strings.TrimSpace(clean)
+}

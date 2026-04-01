@@ -15,19 +15,19 @@ const modelsURL = "https://openrouter.ai/api/v1/models"
 
 type OpenRouter struct {
 	APIKey         string
-	Model          string
+	CurrentModel   string // Renamed from Model to avoid collision with method
 	BaseURL        string
-	ModelsURL      string // Added for testing
+	ModelsURL      string 
 	FallbackModels []string
 	currentIdx     int
 }
 
 func NewOpenRouter(apiKey, model string) *OpenRouter {
 	return &OpenRouter{
-		APIKey:    apiKey,
-		Model:     model,
-		BaseURL:   defaultOpenRouterURL,
-		ModelsURL: modelsURL,
+		APIKey:       apiKey,
+		CurrentModel: model,
+		BaseURL:      defaultOpenRouterURL,
+		ModelsURL:    modelsURL,
 	}
 }
 
@@ -82,7 +82,7 @@ func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
 
 	// Move the initially preferred model to the front if it's free
 	for i, f := range free {
-		if f == o.Model {
+		if f == o.CurrentModel {
 			free[0], free[i] = free[i], free[0]
 			break
 		}
@@ -109,6 +109,10 @@ type openRouterResponse struct {
 	} `json:"error,omitempty"`
 }
 
+func (o *OpenRouter) Model() string {
+	return o.CurrentModel
+}
+
 func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usage, error) {
 	start := time.Now()
 	var lastErr error
@@ -116,13 +120,13 @@ func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usag
 	// 1. Prepare models to rotate through
 	modelsToTry := o.FallbackModels
 	if len(modelsToTry) == 0 {
-		modelsToTry = []string{o.Model}
+		modelsToTry = []string{o.CurrentModel}
 	}
 
 	// 2. Rotate through models
 	for i := o.currentIdx; i < len(modelsToTry); i++ {
 		currentModel := modelsToTry[i]
-		o.Model = currentModel
+		o.CurrentModel = currentModel
 		o.currentIdx = i
 
 		delay := 4 * time.Second
@@ -201,7 +205,7 @@ func (o *OpenRouter) doChatWithFallback(ctx context.Context, messages []Message)
 
 func (o *OpenRouter) doRequest(ctx context.Context, messages []Message) (string, Usage, error) {
 	reqBody := openRouterRequest{
-		Model:    o.Model,
+		Model:    o.CurrentModel,
 		Messages: messages,
 	}
 	body, err := json.Marshal(reqBody)
