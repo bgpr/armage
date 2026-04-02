@@ -8,74 +8,68 @@ import (
 
 var (
 	thoughtRegex  = regexp.MustCompile(`(?s)Thought:\s*(.*?)(?:\nAction:|\n<tool_call>|$)`)
-	actionRegex   = regexp.MustCompile(`Action:\s*(\w+)\((.*?)\)`)
 	xmlBlockRegex = regexp.MustCompile(`(?s)<tool_call>(.*?)</tool_call>`)
 	xmlFuncRegex  = regexp.MustCompile(`<function=(\w+)>`)
 	xmlParamRegex = regexp.MustCompile(`(?s)<parameter=(\w+)>(.*?)</parameter>`)
-	jsonBlockRegex = regexp.MustCompile(`(?s)\{.*\}`)
 )
 
 // Parse extracts the Thought and all Actions (tool calls) from the LLM's response.
 func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 	trimmedInput := strings.TrimSpace(input)
 
-	// 1. Try to extract and parse a JSON block (Flexible JSON handling)
-	if jsonMatch := jsonBlockRegex.FindString(trimmedInput); jsonMatch != "" {
-		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonMatch), &raw); err == nil {
-			// Extract Thought
-			if t, ok := raw["thought"].(string); ok { thought = t }
-			if t, ok := raw["Thought"].(string); ok { thought = t }
-
-			// Extract Actions (Standard Format)
-			if tcRaw, ok := raw["tool_calls"].([]interface{}); ok {
-				for _, item := range tcRaw {
-					if m, ok := item.(map[string]interface{}); ok {
-						name, _ := m["name"].(string)
-						args, _ := m["args"].(string)
-						if name != "" {
-							toolCalls = append(toolCalls, ToolCall{Name: name, Args: args})
-						}
-					}
+	// 1. EXTRACT BALANCED JSON BLOCKS
+	for i := 0; i < len(trimmedInput); i++ {
+		if trimmedInput[i] == '{' {
+			depth := 0
+			end := -1
+			for j := i; j < len(trimmedInput); j++ {
+				if trimmedInput[j] == '{' { depth++ } else if trimmedInput[j] == '}' {
+					depth--
+					if depth == 0 { end = j; break }
 				}
 			}
+			if end != -1 {
+				jsonBlock := trimmedInput[i : end+1]
+				var raw map[string]interface{}
+				if err := json.Unmarshal([]byte(jsonBlock), &raw); err == nil {
+					if t, ok := raw["thought"].(string); ok { thought += t + " " }
+					if t, ok := raw["Thought"].(string); ok { thought += t + " " }
+					
+					if tcRaw, ok := raw["tool_calls"].([]interface{}); ok {
+						for _, item := range tcRaw {
+							if m, ok := item.(map[string]interface{}); ok {
+								name, _ := m["name"].(string)
+								args, _ := m["args"].(string)
+								if name != "" {
+									toolCalls = append(toolCalls, ToolCall{Name: name, Args: args})
+								}
+							}
+						}
+					}
 
-			// Extract Actions (Fuzzy Format: "Action": [{"pattern": "..."}])
-			if actRaw, ok := raw["Action"].([]interface{}); ok {
-				for _, item := range actRaw {
-					if m, ok := item.(map[string]interface{}); ok {
-						// Infer tool name from keys
-						name := "shell" 
-						if _, ok := m["pattern"]; ok { name = "grep_search" }
-						if _, ok := m["path"]; ok && name == "shell" { name = "list_dir" }
-						
-						argsBytes, _ := json.Marshal(m)
+					if actRaw, ok := raw["Action"].(string); ok {
+						_, innerCalls, _ := Parse("Action: " + actRaw)
+						toolCalls = append(toolCalls, innerCalls...)
+					} else if actMap, ok := raw["Action"].(map[string]interface{}); ok {
+						argsBytes, _ := json.Marshal(actMap)
+						name := "shell"
+						if _, ok := actMap["path"]; ok { name = "list_dir" }
+						if _, ok := actMap["pattern"]; ok { name = "grep_search" }
 						toolCalls = append(toolCalls, ToolCall{Name: name, Args: string(argsBytes)})
 					}
 				}
-			} else if actStr, ok := raw["Action"].(string); ok {
-				// Nested ReAct style inside JSON
-				_, actionCalls, _ := Parse("Action: " + actStr)
-				toolCalls = append(toolCalls, actionCalls...)
+				i = end 
 			}
 		}
-		if thought != "" || len(toolCalls) > 0 {
-			return stripInstructions(thought), toolCalls, nil
-		}
 	}
 
-	// 2. Extract Thought using markers
-	thoughtMatch := thoughtRegex.FindStringSubmatch(input)
-	if len(thoughtMatch) > 1 {
-		thought = strings.TrimSpace(thoughtMatch[1])
-	}
-
-	// 3. Extract ReAct Actions (Balanced Parentheses)
+	// 2. EXTRACT RE-ACT ACTIONS (Fallback)
 	lines := strings.Split(input, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Action:") {
-			actionPart := strings.TrimSpace(strings.TrimPrefix(line, "Action:"))
+		if strings.Contains(line, "Action:") {
+			idx := strings.Index(line, "Action:")
+			actionPart := strings.TrimSpace(line[idx+7:])
 			openParenIdx := strings.Index(actionPart, "(")
 			if openParenIdx > 0 {
 				toolName := strings.TrimSpace(actionPart[:openParenIdx])
@@ -94,27 +88,28 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 		}
 	}
 
-	// 4. Extract XML Tool Calls
+	// 3. EXTRACT XML ACTIONS
 	xmlBlocks := xmlBlockRegex.FindAllStringSubmatch(input, -1)
 	for _, block := range xmlBlocks {
 		content := block[1]
 		funcMatch := xmlFuncRegex.FindStringSubmatch(content)
-		if len(funcMatch) < 2 { continue }
-		funcName := funcMatch[1]
-		params := make(map[string]interface{})
-		paramMatches := xmlParamRegex.FindAllStringSubmatch(content, -1)
-		for _, pm := range paramMatches {
-			if len(pm) > 2 { params[pm[1]] = strings.TrimSpace(pm[2]) }
+		if len(funcMatch) >= 2 {
+			funcName := funcMatch[1]
+			params := make(map[string]interface{})
+			paramMatches := xmlParamRegex.FindAllStringSubmatch(content, -1)
+			for _, pm := range paramMatches {
+				if len(pm) > 2 { params[pm[1]] = strings.TrimSpace(pm[2]) }
+			}
+			argsJSON, _ := json.Marshal(params)
+			toolCalls = append(toolCalls, ToolCall{Name: funcName, Args: strings.TrimSpace(string(argsJSON))})
 		}
-		argsJSON, _ := json.Marshal(params)
-		toolCalls = append(toolCalls, ToolCall{Name: funcName, Args: strings.TrimSpace(string(argsJSON))})
 	}
 
 	if thought == "" && len(toolCalls) == 0 { 
-		thought = strings.TrimSpace(input) 
+		thought = input 
 	}
-	
-	return stripInstructions(thought), toolCalls, nil
+
+	return stripInstructions(strings.TrimSpace(thought)), toolCalls, nil
 }
 
 func stripInstructions(text string) string {
@@ -122,6 +117,7 @@ func stripInstructions(text string) string {
 		"[Your detailed reasoning about the current state and next steps]",
 		"Action: ToolName([JSON Arguments])",
 		"Thought: [Your detailed reasoning",
+		"```json", "```", 
 	}
 	clean := text
 	for _, p := range placeholders {
