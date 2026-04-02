@@ -15,11 +15,12 @@ const modelsURL = "https://openrouter.ai/api/v1/models"
 
 type OpenRouter struct {
 	APIKey         string
-	CurrentModel   string // Renamed from Model to avoid collision with method
+	CurrentModel   string 
 	BaseURL        string
 	ModelsURL      string 
 	FallbackModels []string
 	currentIdx     int
+	Logger         Logger // Added for TUI-safe logging
 }
 
 func NewOpenRouter(apiKey, model string) *OpenRouter {
@@ -60,11 +61,9 @@ func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
 	}
 
 	var free []string
-	// Exclude very small models that might struggle with ReAct reasoning
 	blacklist := []string{"1b", "0.5b", "phi-3-mini", "tiny", "tinyllama"}
 
 	for _, m := range res.Data {
-		// Strictly filter for models that have 0 pricing AND the :free suffix
 		if m.Pricing.Prompt == "0" && m.Pricing.Completion == "0" && strings.HasSuffix(m.ID, ":free") {
 			isBlacklisted := false
 			lowered := strings.ToLower(m.ID)
@@ -80,7 +79,6 @@ func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
 		}
 	}
 
-	// Move the initially preferred model to the front if it's free
 	for i, f := range free {
 		if f == o.CurrentModel {
 			free[0], free[i] = free[i], free[0]
@@ -114,61 +112,58 @@ func (o *OpenRouter) Model() string {
 }
 
 func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usage, error) {
-	start := time.Now()
 	var lastErr error
 
-	// 1. Prepare models to rotate through
 	modelsToTry := o.FallbackModels
 	if len(modelsToTry) == 0 {
 		modelsToTry = []string{o.CurrentModel}
 	}
 
-	// 2. Rotate through models
 	for i := o.currentIdx; i < len(modelsToTry); i++ {
 		currentModel := modelsToTry[i]
 		o.CurrentModel = currentModel
 		o.currentIdx = i
 
 		delay := 4 * time.Second
-		// Inner loop for exponential backoff on the current model
 		for retry := 0; retry < 3; retry++ {
 			res, usage, err := o.doChatWithFallback(ctx, messages)
 			if err == nil {
-				fmt.Printf("\r[LLM Response] Received after %v.\n", time.Since(start).Round(time.Millisecond))
 				return res, usage, nil
 			}
 
 			lastErr = err
 			errStr := strings.ToLower(err.Error())
 
-			// Check for 429 (Too Many Requests) or 403 (Forbidden/Provider Error)
 			if strings.Contains(errStr, "429") || strings.Contains(errStr, "403") {
 				reason := "Rate Limited"
 				if strings.Contains(errStr, "403") {
 					reason = "Provider Error"
 				}
-				fmt.Printf("\n[%s (%s) on %s] Retrying in %v... (Attempt %d/3)\n", reason, errStr, currentModel, delay, retry+1)
+				msg := fmt.Sprintf("[%s on %s] Retrying in %v... (Attempt %d/3)", reason, currentModel, delay, retry+1)
+				if o.Logger != nil {
+					o.Logger(msg)
+				}
+				
 				select {
 				case <-ctx.Done():
 					return "", Usage{}, ctx.Err()
 				case <-time.After(delay):
-					delay *= 2 // Exponential backoff
+					delay *= 2 
 					continue
 				}
 			}
-			
-			// Non-retriable error
 			break
 		}
 
-		// If it's a 429/403 after 3 retries, rotate to the next model in the list
 		errStr := strings.ToLower(lastErr.Error())
 		if (strings.Contains(errStr, "429") || strings.Contains(errStr, "403")) && i < len(modelsToTry)-1 {
-			fmt.Printf("\n[Model Switch] Rotating from %s due to persistent provider error/limit.\n", currentModel)
+			msg := fmt.Sprintf("[Model Switch] Rotating from %s due to persistent error.", currentModel)
+			if o.Logger != nil {
+				o.Logger(msg)
+			}
 			continue
 		}
 
-		// If we reached here, it's either success (returned above), a non-429 error, or we exhausted all models.
 		return "", Usage{}, lastErr
 	}
 
@@ -176,13 +171,11 @@ func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usag
 }
 
 func (o *OpenRouter) doChatWithFallback(ctx context.Context, messages []Message) (string, Usage, error) {
-	// 1. Try with original messages (respecting 'system' role)
 	res, usage, err := o.doRequest(ctx, messages)
 	if err == nil {
 		return res, usage, nil
 	}
 
-	// 2. If it's a 400 error mentioning 'system' role or 'developer instruction', retry with fallback
 	errStr := strings.ToLower(err.Error())
 	if strings.Contains(errStr, "400") && (strings.Contains(errStr, "system") || strings.Contains(errStr, "developer instruction")) {
 		fallbackMessages := make([]Message, len(messages))
@@ -196,7 +189,6 @@ func (o *OpenRouter) doChatWithFallback(ctx context.Context, messages []Message)
 				fallbackMessages[i] = m
 			}
 		}
-		// Retry with user-role instructions
 		return o.doRequest(ctx, fallbackMessages)
 	}
 
@@ -230,7 +222,6 @@ func (o *OpenRouter) doRequest(ctx context.Context, messages []Message) (string,
 	if resp.StatusCode != http.StatusOK {
 		var errBody bytes.Buffer
 		errBody.ReadFrom(resp.Body)
-		// Return the error body as part of the error message for inspection
 		return "", Usage{}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, errBody.String())
 	}
 

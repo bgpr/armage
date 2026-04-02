@@ -17,6 +17,9 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+// Logger is a callback for system-level events (rotations, progress).
+type Logger func(string)
+
 // LLM is the interface for different AI providers.
 type LLM interface {
 	Chat(ctx context.Context, messages []Message) (string, Usage, error)
