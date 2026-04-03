@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -89,6 +90,63 @@ func TestTUI_Update_StepMsg_Approval(t *testing.T) {
 	}
 	if len(m.pendingActions) != 1 {
 		t.Errorf("expected 1 pending action, got %d", len(m.pendingActions))
+	}
+}
+
+func TestTUI_Update_ToggleLogs(t *testing.T) {
+	a := agent.New(&MockLLM{}, agent.NewRegistry())
+	m := newModel(a, "", "system prompt")
+	m.width = 100
+	m.height = 40
+	m.ready = true
+
+	// Initial
+	if m.showLogs {
+		t.Error("expected showLogs to be false initially")
+	}
+
+	// Toggle (Ctrl+L)
+	msg := tea.KeyMsg{Type: tea.KeyCtrlL}
+	newModel, _ := m.Update(msg)
+	m = newModel.(model)
+
+	if !m.showLogs {
+		t.Error("expected showLogs to be true after Ctrl+L")
+	}
+}
+
+func TestTUI_Update_ErrMsg(t *testing.T) {
+	a := agent.New(&MockLLM{}, agent.NewRegistry())
+	m := newModel(a, "", "system prompt")
+	m.ready = true
+
+	err := fmt.Errorf("network failure")
+	newModel, _ := m.Update(errMsg(err))
+	m = newModel.(model)
+
+	if m.err == nil || m.err.Error() != "network failure" {
+		t.Errorf("expected error to be stored, got %v", m.err)
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "network failure") {
+		t.Error("expected view to contain the error message")
+	}
+}
+
+func TestTUI_Update_Reset(t *testing.T) {
+	a := agent.New(&MockLLM{}, agent.NewRegistry())
+	a.TotalUsage.TotalTokens = 500
+	m := newModel(a, "", "system prompt")
+	m.ready = true
+
+	// Trigger Reset (F2)
+	msg := tea.KeyMsg{Type: tea.KeyF2}
+	newModel, _ := m.Update(msg)
+	m = newModel.(model)
+
+	if m.agent.TotalUsage.TotalTokens != 0 {
+		t.Errorf("expected usage to be reset, got %d", m.agent.TotalUsage.TotalTokens)
 	}
 }
 
