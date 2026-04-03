@@ -84,6 +84,10 @@ func (m *MockLLM) Chat(ctx context.Context, messages []Message) (string, Usage, 
 	return "OK", Usage{}, nil
 }
 
+func (m *MockLLM) Model() string {
+	return "mock-model"
+}
+
 type MockScrubber struct {
 	Calls int
 }

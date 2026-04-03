@@ -105,6 +105,14 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 		}
 	}
 
+	// 4. EXTRACT THOUGHT USING REGEX (If not found in JSON)
+	if thought == "" {
+		thoughtMatch := thoughtRegex.FindStringSubmatch(input)
+		if len(thoughtMatch) > 1 {
+			thought = strings.TrimSpace(thoughtMatch[1])
+		}
+	}
+
 	if thought == "" && len(toolCalls) == 0 { 
 		thought = input 
 	}
@@ -117,6 +125,7 @@ func stripInstructions(text string) string {
 		"[Your detailed reasoning about the current state and next steps]",
 		"Action: ToolName([JSON Arguments])",
 		"Thought: [Your detailed reasoning",
+		"Thought: ",
 		"```json", "```", 
 	}
 	clean := text
