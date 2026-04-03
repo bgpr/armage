@@ -25,6 +25,7 @@ const (
 	stateHelp            = "help"
 	statePaused          = "paused"
 	stateSearch          = "search"
+	statePlan            = "plan" // New state
 )
 
 // Styles
@@ -92,9 +93,11 @@ type model struct {
 	systemLogs     []string
 	viewport       viewport.Model
 	logViewport    viewport.Model
+	planViewport   viewport.Model // New
 	textInput      textinput.Model
 	searchInput    textinput.Model
 	spinner        spinner.Model
+	renderer       *glamour.TermRenderer // New: Cached
 	lastTask       string
 	statePath      string
 	systemPrompt   string
@@ -102,6 +105,7 @@ type model struct {
 	width, height  int
 	ready          bool
 	showLogs       bool
+	showPlan       bool // New
 	startTime      time.Time
 	elapsed        time.Duration
 	scrubberOn     bool
@@ -118,12 +122,10 @@ func newModel(a *agent.Agent, statePath, systemPrompt string) model {
 	ti.Placeholder = "Enter task..."
 	ti.Focus()
 	ti.CharLimit = 512
-	ti.Width = 80
 
 	si := textinput.New()
 	si.Placeholder = "Search history..."
 	si.CharLimit = 64
-	si.Width = 30
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -157,11 +159,10 @@ func newModel(a *agent.Agent, statePath, systemPrompt string) model {
 }
 
 func (m model) renderMarkdown(text string) string {
-	r, _ := glamour.NewTermRenderer(
-		glamour.WithStandardStyle("notty"),
-		glamour.WithWordWrap(m.width - 4),
-	)
-	out, _ := r.Render(text)
+	if m.renderer == nil {
+		return text
+	}
+	out, _ := m.renderer.Render(text)
 	return out
 }
 
@@ -209,6 +210,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		siCmd tea.Cmd
 		vpCmd tea.Cmd
 		lvCmd tea.Cmd
+		pvCmd tea.Cmd // Plan viewport
 		sCmd  tea.Cmd
 	)
 
@@ -225,11 +227,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateIdle
 				m.searchInput.Blur()
 				m.textInput.Focus()
+				m.updateViewports(false)
 				return m, nil
 			case tea.KeyEnter:
 				m.state = stateIdle
 				m.searchInput.Blur()
 				m.textInput.Focus()
+				m.updateViewports(false)
 				return m, nil
 			}
 			m.searchInput, siCmd = m.searchInput.Update(msg)
@@ -242,8 +246,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case tea.KeyCtrlL:
-			m.showLogs = !m.showLogs
-			m.resizeViewports()
+			if !m.showPlan {
+				m.showLogs = !m.showLogs
+				m.resizeViewports()
+			}
 			return m, nil
 
 		case tea.KeyF1:
@@ -254,8 +260,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyF2: 
 			return m.resetSession()
 
-		case tea.KeyF3: // FOCUS MODE
+		case tea.KeyF3: 
 			m.focusMode = !m.focusMode
+			m.resizeViewports()
+			return m, nil
+
+		case tea.KeyF4: // Toggle Plan Mode
+			if m.state == statePlan {
+				m.state = stateIdle
+				m.showPlan = false
+			} else {
+				m.state = statePlan
+				m.showPlan = true
+				m.loadPlan()
+			}
 			m.resizeViewports()
 			return m, nil
 
@@ -295,7 +313,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				
-				// Save history
 				m.inputHistory = append(m.inputHistory, input)
 				m.historyIdx = -1
 
@@ -336,12 +353,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchInput.Focus()
 				return m, nil
 			}
-			if m.state == stateIdle && m.textInput.Value() == "" {
+			if (m.state == stateIdle || m.state == statePlan) && m.textInput.Value() == "" {
 				switch msg.String() {
-				case "j": m.viewport.LineDown(1); return m, nil
-				case "k": m.viewport.LineUp(1); return m, nil
-				case "g": m.viewport.GotoTop(); return m, nil
-				case "G": m.viewport.GotoBottom(); return m, nil
+				case "j":
+					if m.showPlan { m.planViewport.LineDown(1) } else { m.viewport.LineDown(1) }
+					return m, nil
+				case "k":
+					if m.showPlan { m.planViewport.LineUp(1) } else { m.viewport.LineUp(1) }
+					return m, nil
+				case "g":
+					if m.showPlan { m.planViewport.GotoTop() } else { m.viewport.GotoTop() }
+					return m, nil
+				case "G":
+					if m.showPlan { m.planViewport.GotoBottom() } else { m.viewport.GotoBottom() }
+					return m, nil
 				}
 			}
 		}
@@ -386,7 +411,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 
-		// PAUSE AFTER 1 TURN (User asked for explicit move forward)
 		m.state = stateIdle
 		m.updateViewports(true)
 		break
@@ -408,18 +432,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	m.textInput, tiCmd = m.textInput.Update(msg)
+	m.searchInput, siCmd = m.searchInput.Update(msg)
 	m.updateViewports(false)
 	m.viewport, vpCmd = m.viewport.Update(msg)
+	m.planViewport, pvCmd = m.planViewport.Update(msg)
 	m.logViewport, lvCmd = m.logViewport.Update(msg)
 
-	return m, tea.Batch(tiCmd, siCmd, vpCmd, lvCmd, sCmd)
+	return m, tea.Batch(tiCmd, siCmd, vpCmd, pvCmd, lvCmd, sCmd)
+}
+
+func (m *model) loadPlan() {
+	data, err := os.ReadFile("PLAN.md")
+	if err != nil {
+		m.planViewport.SetContent(errorStyle.Render("No PLAN.md found."))
+		return
+	}
+	m.planViewport.SetContent(m.renderMarkdown(string(data)))
 }
 
 func (m model) resetSession() (tea.Model, tea.Cmd) {
 	m.agent.History = []provider.Message{}
 	m.agent.TotalUsage = provider.Usage{}
 	m.agent.AddSystemPrompt(m.systemPrompt)
-	m.history = []string{infoStyle.Render("Full reset complete.")}
+	m.history = []string{infoStyle.Render("Full context and cache reset.")}
 	m.textInput.SetValue("")
 	if m.statePath != "" { os.Remove(m.statePath) }
 	os.Remove(".armage_scrub_cache.json")
@@ -446,28 +481,44 @@ func (m *model) resizeViewports() {
 	}
 	
 	mainHeight := m.height - headerHeight - footerHeight
-	if mainHeight < 1 {
-		mainHeight = 1
-	}
+	if mainHeight < 1 { mainHeight = 1 }
 	
-	if m.showLogs && !m.focusMode {
+	if m.showLogs && !m.focusMode && !m.showPlan {
 		logHeight := 6
-		if mainHeight > 10 { // Only show logs if we have enough room
+		if mainHeight > 10 {
 			mainHeight -= (logHeight + 1)
 			m.logViewport = viewport.New(m.width, logHeight)
 			m.logViewport.Style = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true, false, false, false).BorderForeground(lipgloss.Color("#44475A"))
 		} else {
-			m.showLogs = false // Force hide if no room
+			m.showLogs = false
 		}
 	}
 
+	// RESPONSIVE INPUTS
+	m.textInput.Width = m.width - 4
+	m.searchInput.Width = m.width / 2
+
+	// RECACHE RENDERER
+	m.renderer, _ = glamour.NewTermRenderer(
+		glamour.WithStandardStyle("notty"),
+		glamour.WithWordWrap(m.width - 4),
+	)
+
 	if !m.ready {
 		m.viewport = viewport.New(m.width, mainHeight)
+		m.planViewport = viewport.New(m.width, mainHeight)
 		m.ready = true
 	} else {
 		m.viewport.Width = m.width
 		m.viewport.Height = mainHeight
+		m.planViewport.Width = m.width
+		m.planViewport.Height = mainHeight
 	}
+	
+	if m.showPlan {
+		m.loadPlan()
+	}
+	
 	m.updateViewports(true)
 }
 
@@ -493,7 +544,9 @@ func (m model) View() string {
 	var header string
 	if !m.focusMode {
 		cwd, _ := os.Getwd()
-		header = titleStyle.Render(" ARMAGE ") + "  " + infoStyle.Render(fmt.Sprintf("Total: %d", m.agent.TotalUsage.TotalTokens)) + "  " + logStyle.Render(cwd) + "\n\n"
+		label := "HISTORY"
+		if m.showPlan { label = "PLAN (F4 to exit)" }
+		header = titleStyle.Render(" ARMAGE ") + " [" + label + "]  " + infoStyle.Render(fmt.Sprintf("Total: %d", m.agent.TotalUsage.TotalTokens)) + "  " + logStyle.Render(cwd) + "\n\n"
 	}
 	
 	var status string
@@ -502,8 +555,12 @@ func (m model) View() string {
 		status = m.spinner.View() + " Thinking... " + timerStyle.Render(m.elapsed.Round(time.Second).String())
 	case statePendingApproval:
 		status = lipgloss.NewStyle().Background(lipgloss.Color("#FFA500")).Foreground(lipgloss.Color("#000000")).Render(" APPROVAL REQUIRED ")
+	case statePaused:
+		status = lipgloss.NewStyle().Background(lipgloss.Color("#7D56F4")).Foreground(lipgloss.Color("#FFFFFF")).Render(" PAUSED ")
 	case stateSearch:
 		status = searchStyle.Render(" SEARCH ") + " " + m.searchInput.View()
+	case statePlan:
+		status = activeStyle.Render(" PLAN VIEW ")
 	default:
 		status = lipgloss.NewStyle().Foreground(lipgloss.Color("#55FF55")).Render("●") + " Ready"
 	}
@@ -541,7 +598,11 @@ func (m model) View() string {
 	}
 
 	mainView := m.viewport.View()
-	if m.showLogs && !m.focusMode { mainView += "\n" + m.logViewport.View() }
+	if m.showPlan {
+		mainView = m.planViewport.View()
+	}
+	
+	if m.showLogs && !m.focusMode && !m.showPlan { mainView += "\n" + m.logViewport.View() }
 
 	return fmt.Sprintf("%s%s\n%s", header, mainView, footer)
 }
@@ -556,6 +617,7 @@ func (m model) helpView() string {
 - **g / G**      : Go to Top / Bottom
 - **F1 / ?**     : Toggle this help screen
 - **F3**         : Toggle Focus Mode (Max Real Estate)
+- **F4**         : Toggle Plan View (PLAN.md)
 - **F7 / Ctrl+G**: Toggle Safety Governor
 - **Ctrl+L**     : Toggle System Logs
 - **Ctrl+C**     : Quit Armage
