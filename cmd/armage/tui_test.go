@@ -150,6 +150,26 @@ func TestTUI_Update_Reset(t *testing.T) {
 	}
 }
 
+func TestTUI_Resilience_SmallScreen(t *testing.T) {
+	a := agent.New(&MockLLM{}, agent.NewRegistry())
+	m := newModel(a, "", "system prompt")
+	
+	// Simulate extreme small screen
+	msg := tea.WindowSizeMsg{Width: 1, Height: 1}
+	newModel, _ := m.Update(msg)
+	m = newModel.(model)
+
+	if m.viewport.Height < 1 {
+		t.Errorf("expected minimum viewport height of 1, got %d", m.viewport.Height)
+	}
+
+	// Verify View doesn't panic
+	view := m.View()
+	if view == "" {
+		t.Error("View() returned empty string on small screen")
+	}
+}
+
 func TestTUI_View_Ready(t *testing.T) {
 	a := agent.New(&MockLLM{}, agent.NewRegistry())
 	m := newModel(a, "", "system prompt")

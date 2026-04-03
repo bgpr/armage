@@ -541,14 +541,30 @@ func (m model) View() string {
 	if !m.ready { return "\n  Initializing Armage TUI..." }
 	if m.state == stateHelp { return m.helpView() }
 
+	// 1. Header (Sticky)
 	var header string
 	if !m.focusMode {
 		cwd, _ := os.Getwd()
 		label := "HISTORY"
 		if m.showPlan { label = "PLAN (F4 to exit)" }
-		header = titleStyle.Render(" ARMAGE ") + " [" + label + "]  " + infoStyle.Render(fmt.Sprintf("Total: %d", m.agent.TotalUsage.TotalTokens)) + "  " + logStyle.Render(cwd) + "\n\n"
+		
+		title := titleStyle.Render(" ARMAGE ")
+		meta := infoStyle.Render(fmt.Sprintf("Total: %d", m.agent.TotalUsage.TotalTokens))
+		path := logStyle.Render(cwd)
+		
+		header = fmt.Sprintf("%s [%s]  %s  %s\n\n", title, label, meta, path)
 	}
 	
+	// 2. Main Viewport
+	mainView := m.viewport.View()
+	if m.showPlan {
+		mainView = m.planViewport.View()
+	}
+	if m.showLogs && !m.focusMode && !m.showPlan {
+		mainView += "\n" + m.logViewport.View()
+	}
+
+	// 3. Footer
 	var status string
 	switch m.state {
 	case stateThinking:
@@ -597,14 +613,7 @@ func (m model) View() string {
 			infoStyle.Render(fmt.Sprintf("SCRUB: %v", m.scrubberOn)))
 	}
 
-	mainView := m.viewport.View()
-	if m.showPlan {
-		mainView = m.planViewport.View()
-	}
-	
-	if m.showLogs && !m.focusMode && !m.showPlan { mainView += "\n" + m.logViewport.View() }
-
-	return fmt.Sprintf("%s%s\n%s", header, mainView, footer)
+	return header + mainView + footer
 }
 
 func (m model) helpView() string {
