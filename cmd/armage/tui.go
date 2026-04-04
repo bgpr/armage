@@ -25,7 +25,7 @@ const (
 	stateHelp            = "help"
 	statePaused          = "paused"
 	stateSearch          = "search"
-	statePlan            = "plan" // New state
+	statePlan            = "plan"
 )
 
 // Styles
@@ -93,11 +93,11 @@ type model struct {
 	systemLogs     []string
 	viewport       viewport.Model
 	logViewport    viewport.Model
-	planViewport   viewport.Model // New
+	planViewport   viewport.Model
 	textInput      textinput.Model
 	searchInput    textinput.Model
 	spinner        spinner.Model
-	renderer       *glamour.TermRenderer // New: Cached
+	renderer       *glamour.TermRenderer
 	lastTask       string
 	statePath      string
 	systemPrompt   string
@@ -105,7 +105,7 @@ type model struct {
 	width, height  int
 	ready          bool
 	showLogs       bool
-	showPlan       bool // New
+	showPlan       bool
 	startTime      time.Time
 	elapsed        time.Duration
 	scrubberOn     bool
@@ -115,6 +115,8 @@ type model struct {
 	focusMode      bool
 	inputHistory   []string
 	historyIdx     int
+	planTotal      int
+	planDone       int
 }
 
 func newModel(a *agent.Agent, statePath, systemPrompt string) model {
@@ -210,7 +212,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		siCmd tea.Cmd
 		vpCmd tea.Cmd
 		lvCmd tea.Cmd
-		pvCmd tea.Cmd // Plan viewport
+		pvCmd tea.Cmd
 		sCmd  tea.Cmd
 	)
 
@@ -265,7 +267,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resizeViewports()
 			return m, nil
 
-		case tea.KeyF4: // Toggle Plan Mode
+		case tea.KeyF4: 
 			if m.state == statePlan {
 				m.state = stateIdle
 				m.showPlan = false
@@ -379,6 +381,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stepMsg:
 		m.elapsed = time.Since(m.startTime)
 		m.autoTurns++
+		m.refreshPlanStats()
 
 		if msg.Thought != "" {
 			m.history = append(m.history, m.renderMarkdown(msg.Thought))
@@ -442,6 +445,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) loadPlan() {
+	m.refreshPlanStats()
 	data, err := os.ReadFile("PLAN.md")
 	if err != nil {
 		m.planViewport.SetContent(errorStyle.Render("No PLAN.md found."))
@@ -463,6 +467,18 @@ func (m model) resetSession() (tea.Model, tea.Cmd) {
 	m.autoTurns = 0
 	m.updateViewports(true)
 	return m, nil
+}
+
+func (m *model) refreshPlanStats() {
+	data, err := os.ReadFile("PLAN.md")
+	if err != nil {
+		m.planTotal = 0
+		m.planDone = 0
+		return
+	}
+	content := string(data)
+	m.planTotal = strings.Count(content, "[ ]") + strings.Count(content, "[x]")
+	m.planDone = strings.Count(content, "[x]")
 }
 
 func (m *model) toggleSafety() {
@@ -494,11 +510,9 @@ func (m *model) resizeViewports() {
 		}
 	}
 
-	// RESPONSIVE INPUTS
 	m.textInput.Width = m.width - 4
 	m.searchInput.Width = m.width / 2
 
-	// RECACHE RENDERER
 	m.renderer, _ = glamour.NewTermRenderer(
 		glamour.WithStandardStyle("notty"),
 		glamour.WithWordWrap(m.width - 4),
@@ -541,7 +555,6 @@ func (m model) View() string {
 	if !m.ready { return "\n  Initializing Armage TUI..." }
 	if m.state == stateHelp { return m.helpView() }
 
-	// 1. Header (Sticky)
 	var header string
 	if !m.focusMode {
 		cwd, _ := os.Getwd()
@@ -549,13 +562,13 @@ func (m model) View() string {
 		if m.showPlan { label = "PLAN (F4 to exit)" }
 		
 		title := titleStyle.Render(" ARMAGE ")
+		mission := m.missionGauge()
 		meta := infoStyle.Render(fmt.Sprintf("Total: %d", m.agent.TotalUsage.TotalTokens))
 		path := logStyle.Render(cwd)
 		
-		header = fmt.Sprintf("%s [%s]  %s  %s\n\n", title, label, meta, path)
+		header = fmt.Sprintf("%s [%s]  %s  %s  %s\n\n", title, label, mission, meta, path)
 	}
 	
-	// 2. Main Viewport
 	mainView := m.viewport.View()
 	if m.showPlan {
 		mainView = m.planViewport.View()
@@ -564,7 +577,6 @@ func (m model) View() string {
 		mainView += "\n" + m.logViewport.View()
 	}
 
-	// 3. Footer
 	var status string
 	switch m.state {
 	case stateThinking:
@@ -614,6 +626,22 @@ func (m model) View() string {
 	}
 
 	return header + mainView + footer
+}
+
+func (m model) missionGauge() string {
+	if m.planTotal == 0 { return "" }
+	
+	percentage := (float64(m.planDone) / float64(m.planTotal)) * 100
+	width := 10
+	filled := int(float64(m.planDone) / float64(m.planTotal) * float64(width))
+	if filled > width { filled = width }
+	
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+	color := "#AF87FF" 
+	
+	return fmt.Sprintf("Mission: %s %.0f%%", 
+		lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render("[" + bar + "]"),
+		percentage)
 }
 
 func (m model) helpView() string {
