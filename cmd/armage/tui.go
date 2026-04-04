@@ -28,6 +28,12 @@ const (
 	statePlan            = "plan"
 )
 
+// Focus States
+const (
+	focusInput    = "input"
+	focusViewport = "viewport"
+)
+
 // Styles
 var (
 	titleStyle = lipgloss.NewStyle().
@@ -79,6 +85,15 @@ var (
 			Background(lipgloss.Color("#FFD700")).
 			Foreground(lipgloss.Color("#000000")).
 			Bold(true)
+
+	// Focus Highlights
+	focusedStyle = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, false, true).
+			BorderLeftForeground(lipgloss.Color("#00FFFF")).
+			PaddingLeft(1)
+
+	unfocusedStyle = lipgloss.NewStyle().
+			PaddingLeft(2)
 )
 
 type stepMsg agent.StepResult
@@ -89,6 +104,7 @@ type model struct {
 	agent          *agent.Agent
 	state          string
 	prevState      string
+	focusPort      string 
 	history        []string
 	systemLogs     []string
 	viewport       viewport.Model
@@ -149,6 +165,7 @@ func newModel(a *agent.Agent, statePath, systemPrompt string) model {
 	return model{
 		agent:        a,
 		state:        stateIdle,
+		focusPort:    focusInput,
 		textInput:    ti,
 		searchInput:  si,
 		spinner:      s,
@@ -247,6 +264,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 
+		case tea.KeyTab: 
+			if m.focusPort == focusInput {
+				m.focusPort = focusViewport
+				m.textInput.Blur()
+			} else {
+				m.focusPort = focusInput
+				m.textInput.Focus()
+			}
+			return m, nil
+
 		case tea.KeyCtrlL:
 			if !m.showPlan {
 				m.showLogs = !m.showLogs
@@ -283,7 +310,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleSafety()
 			return m, nil
 
-		case tea.KeyUp:
+		case tea.KeyPgUp, tea.KeyPgDown, tea.KeyUp, tea.KeyDown:
+			// STRICT MODAL FOCUS: Viewport only gets keys if explicitly focused
+			// OR if they are Page keys (which never affect text input)
+			isPageKey := msg.Type == tea.KeyPgUp || msg.Type == tea.KeyPgDown
+			if m.focusPort == focusViewport || isPageKey {
+				if m.showPlan {
+					m.planViewport, pvCmd = m.planViewport.Update(msg)
+				} else {
+					m.viewport, vpCmd = m.viewport.Update(msg)
+				}
+				return m, tea.Batch(pvCmd, vpCmd)
+			}
+
+		case tea.KeyCtrlP: 
 			if m.state == stateIdle && len(m.inputHistory) > 0 {
 				if m.historyIdx < len(m.inputHistory)-1 {
 					m.historyIdx++
@@ -292,7 +332,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-		case tea.KeyDown:
+		case tea.KeyCtrlN: 
 			if m.state == stateIdle {
 				if m.historyIdx > 0 {
 					m.historyIdx--
@@ -355,7 +395,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchInput.Focus()
 				return m, nil
 			}
-			if (m.state == stateIdle || m.state == statePlan) && m.textInput.Value() == "" {
+			// VIM KEYS: ONLY work if viewport is focused
+			if m.focusPort == focusViewport {
 				switch msg.String() {
 				case "j":
 					if m.showPlan { m.planViewport.LineDown(1) } else { m.viewport.LineDown(1) }
@@ -555,6 +596,7 @@ func (m model) View() string {
 	if !m.ready { return "\n  Initializing Armage TUI..." }
 	if m.state == stateHelp { return m.helpView() }
 
+	// 1. Header (Sticky)
 	var header string
 	if !m.focusMode {
 		cwd, _ := os.Getwd()
@@ -569,14 +611,23 @@ func (m model) View() string {
 		header = fmt.Sprintf("%s [%s]  %s  %s  %s\n\n", title, label, mission, meta, path)
 	}
 	
+	// 2. Main Viewport
 	mainView := m.viewport.View()
 	if m.showPlan {
 		mainView = m.planViewport.View()
 	}
+	
+	if m.focusPort == focusViewport {
+		mainView = focusedStyle.Render(mainView)
+	} else {
+		mainView = unfocusedStyle.Render(mainView)
+	}
+
 	if m.showLogs && !m.focusMode && !m.showPlan {
 		mainView += "\n" + m.logViewport.View()
 	}
 
+	// 3. Footer
 	var status string
 	switch m.state {
 	case stateThinking:
@@ -613,10 +664,17 @@ func (m model) View() string {
 	governorStatus := "🛡️ ON"
 	if !m.agent.RequireApproval { governorStatus = "🛡️ OFF" }
 
+	inputView := m.textInput.View()
+	if m.focusPort == focusInput {
+		inputView = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF")).Render("> ") + inputView
+	} else {
+		inputView = "  " + inputView
+	}
+
 	footer := fmt.Sprintf("\n%s %s%s\n%s%s", 
 		status, m.tokenGauge(), errorBar,
 		approvalPanel,
-		m.textInput.View())
+		inputView)
 
 	if !m.focusMode {
 		footer += fmt.Sprintf("\n%s %s %s", 
@@ -647,14 +705,16 @@ func (m model) missionGauge() string {
 func (m model) helpView() string {
 	helpText := `# ARMAGE KEYBINDINGS
 
+- **Tab**        : Toggle Focus (Input vs Scroll)
 - **Enter**      : Submit task / Approve / Continue
 - **/**          : Search History
-- **Up / Down**  : Cycle Input History
-- **j / k**      : Scroll Down / Up (Vim style)
+- **Ctrl+P / N** : Cycle Input History
+- **Up / Down**  : Scroll (when viewport is focused)
+- **j / k**      : Scroll (Vim style)
 - **g / G**      : Go to Top / Bottom
 - **F1 / ?**     : Toggle this help screen
-- **F3**         : Toggle Focus Mode (Max Real Estate)
-- **F4**         : Toggle Plan View (PLAN.md)
+- **F3**         : Toggle Focus Mode
+- **F4**         : Toggle Plan View
 - **F7 / Ctrl+G**: Toggle Safety Governor
 - **Ctrl+L**     : Toggle System Logs
 - **Ctrl+C**     : Quit Armage
