@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -147,6 +148,34 @@ func TestTUI_Update_Reset(t *testing.T) {
 
 	if m.agent.TotalUsage.TotalTokens != 0 {
 		t.Errorf("expected usage to be reset, got %d", m.agent.TotalUsage.TotalTokens)
+	}
+}
+
+func TestTUI_PlanParsing(t *testing.T) {
+	a := agent.New(&MockLLM{}, agent.NewRegistry())
+	m := newModel(a, "", "system prompt")
+
+	content := `
+# PLAN
+- [x] Task 1
+- [ ] Task 2
+- [x] Task 3
+- some text
+- [ ] Task 4
+`
+	err := os.WriteFile("PLAN.md", []byte(content), 0644)
+	if err != nil {
+		t.Fatalf("failed to write mock PLAN.md: %v", err)
+	}
+	defer os.Remove("PLAN.md")
+
+	m.refreshPlanStats()
+
+	if m.planTotal != 4 {
+		t.Errorf("expected 4 total tasks, got %d", m.planTotal)
+	}
+	if m.planDone != 2 {
+		t.Errorf("expected 2 completed tasks, got %d", m.planDone)
 	}
 }
 
