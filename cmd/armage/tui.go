@@ -133,6 +133,10 @@ type model struct {
 	historyIdx     int
 	planTotal      int
 	planDone       int
+	lastAction     string 
+	lastArgs       string 
+	stallCount     int    
+	spinCount      int    
 }
 
 func newModel(a *agent.Agent, statePath, systemPrompt string) model {
@@ -311,8 +315,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyPgUp, tea.KeyPgDown, tea.KeyUp, tea.KeyDown:
-			// STRICT MODAL FOCUS: Viewport only gets keys if explicitly focused
-			// OR if they are Page keys (which never affect text input)
 			isPageKey := msg.Type == tea.KeyPgUp || msg.Type == tea.KeyPgDown
 			if m.focusPort == focusViewport || isPageKey {
 				if m.showPlan {
@@ -395,7 +397,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchInput.Focus()
 				return m, nil
 			}
-			// VIM KEYS: ONLY work if viewport is focused
 			if m.focusPort == focusViewport {
 				switch msg.String() {
 				case "j":
@@ -423,6 +424,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.elapsed = time.Since(m.startTime)
 		m.autoTurns++
 		m.refreshPlanStats()
+
+		if len(msg.ToolCalls) > 0 {
+			currentAction := msg.ToolCalls[0].Name
+			currentArgs := msg.ToolCalls[0].Args
+
+			if currentAction == m.lastAction && currentArgs == m.lastArgs {
+				m.stallCount++
+			} else {
+				m.stallCount = 1
+			}
+
+			if currentAction == m.lastAction {
+				m.spinCount++
+			} else {
+				m.spinCount = 1
+			}
+
+			m.lastAction = currentAction
+			m.lastArgs = currentArgs
+
+			if m.stallCount >= 2 || m.spinCount >= 3 {
+				nudge := provider.Message{
+					Role:    "user",
+					Content: fmt.Sprintf("Observation: You appear to be stuck or repeating actions. Reiterate the goal: [%s]. Please try a different approach, read specific file content, or move toward a final answer.", m.lastTask),
+				}
+				m.agent.History = append(m.agent.History, nudge)
+				m.systemLogs = append(m.systemLogs, infoStyle.Render("Progress Guard: Nudging agent back to goal."))
+				m.stallCount = 0
+				m.spinCount = 0
+			}
+		}
 
 		if msg.Thought != "" {
 			m.history = append(m.history, m.renderMarkdown(msg.Thought))
@@ -475,13 +507,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateThinking { m.elapsed = time.Since(m.startTime) }
 	}
 
-	m.textInput, tiCmd = m.textInput.Update(msg)
-	m.searchInput, siCmd = m.searchInput.Update(msg)
-	m.updateViewports(false)
-	m.viewport, vpCmd = m.viewport.Update(msg)
-	m.planViewport, pvCmd = m.planViewport.Update(msg)
-	m.logViewport, lvCmd = m.logViewport.Update(msg)
+	// STRICT MODAL UPDATES: Only focused components get the message
+	if m.state == stateSearch {
+		m.searchInput, siCmd = m.searchInput.Update(msg)
+	} else if m.focusPort == focusInput {
+		m.textInput, tiCmd = m.textInput.Update(msg)
+	} else {
+		if m.showPlan {
+			m.planViewport, pvCmd = m.planViewport.Update(msg)
+		} else {
+			m.viewport, vpCmd = m.viewport.Update(msg)
+		}
+	}
 
+	m.logViewport, lvCmd = m.logViewport.Update(msg)
 	return m, tea.Batch(tiCmd, siCmd, vpCmd, pvCmd, lvCmd, sCmd)
 }
 
