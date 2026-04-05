@@ -49,6 +49,30 @@ func TestAgentStep(t *testing.T) {
 	}
 }
 
+func TestAgent_SelfCorrection(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&ShellTool{})
+	
+	// Turn 0: Malformed JSON (Nemotron style)
+	// Turn 1: Fixed ReAct format after nudge
+	llm := &MockMultiStepLLM{
+		Responses: []string{
+			`{"Action": "shell({\"command\": \"ls\"})}`, 
+			"Thought: Fixing format.\nAction: shell({\"command\": \"ls\"})",
+		},
+	}
+	
+	a := New(llm, reg)
+	res, err := a.Step(context.Background(), "Run ls")
+	if err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+
+	if len(res.ToolCalls) != 1 || res.ToolCalls[0].Name != "shell" {
+		t.Errorf("Expected shell tool call after self-correction, got: %v", res.ToolCalls)
+	}
+}
+
 func TestAgentStepTransient(t *testing.T) {
 	reg := NewRegistry()
 	llm := &MockLLM{Response: "Thought: I am transient."}

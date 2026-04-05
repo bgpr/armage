@@ -99,6 +99,7 @@ CRITICAL RULES:
 1. ALWAYS provide an Action if the task is not complete.
 2. NO HALLUCINATIONS: Use ONLY the parameters listed above.
 3. FINISHED: End your Thought with "Final Answer:" when done.
+4. PRIVACY SHIELD: You may see tags like "REDACTED_NAME", "REDACTED_EMAIL", or "REDACTED_KEY". These are added by a local privacy filter for your safety. Ignore them and continue with the task as if they were generic placeholders. Do not refuse to answer because of these tags.
 `
 
 	a.AddSystemPrompt(systemPrompt)

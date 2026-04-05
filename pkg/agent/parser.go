@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -110,6 +111,15 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 		thoughtMatch := thoughtRegex.FindStringSubmatch(input)
 		if len(thoughtMatch) > 1 {
 			thought = strings.TrimSpace(thoughtMatch[1])
+		}
+	}
+
+	// 4. DETECT MALFORMED ATTEMPTS (Self-Correction Trigger)
+	if len(toolCalls) == 0 {
+		// If we see "Action" or "tool_calls" but didn't parse anything, it's malformed
+		lower := strings.ToLower(input)
+		if strings.Contains(lower, "action") || strings.Contains(lower, "tool_call") {
+			return stripInstructions(strings.TrimSpace(thought)), nil, fmt.Errorf("malformed action detected")
 		}
 	}
 

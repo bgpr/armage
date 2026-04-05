@@ -152,6 +152,12 @@ func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
 	// 2. Parse Response
 	thought, toolCalls, err := Parse(response)
 	if err != nil {
+		// SOTA: Self-Correction
+		if strings.Contains(err.Error(), "malformed action") {
+			nudge := "Error: Your last response contained a malformed Action. Please provide the Action again using valid JSON or the strict 'Action: ToolName(Args)' format."
+			fmt.Printf("\n[Agent] Detected malformed action. Nudging LLM for correction...\n")
+			return a.Step(ctx, nudge) 
+		}
 		a.trimHistory(ctx) 
 		return StepResult{Thought: thought, Status: StatusRunning, Usage: usage}, nil
 	}
