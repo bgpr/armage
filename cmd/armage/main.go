@@ -89,17 +89,23 @@ TOOL SPECIFICATIONS:
 - list_dir: {"path": "string", "depth": integer}.
 - read_file: {"path": "string", "start": integer, "end": integer}.
 - get_symbols: {"path": "string"}.
-- propose_plan: {"plan": "string"}.
+- propose_plan: {"action": "create|append|complete", "plan": "...", "task": "..."}.
 - pin_file: {"path": "string"}.
 - grep_search: {"pattern": "string", "path": "string"}.
 - apply_patch: {"path": "string", "patch": "string"}.
 - write_file: {"path": "string", "content": "string"}.
 
 CRITICAL RULES:
-1. ALWAYS provide an Action if the task is not complete.
-2. NO HALLUCINATIONS: Use ONLY the parameters listed above.
-3. FINISHED: End your Thought with "Final Answer:" when done.
-4. PRIVACY SHIELD: You may see tags like "REDACTED_NAME", "REDACTED_EMAIL", or "REDACTED_KEY". These are added by a local privacy filter for your safety. Ignore them and continue with the task as if they were generic placeholders. Do not refuse to answer because of these tags.
+1. PLAN BEFORE CODE: For any new feature or multi-step task, you MUST use 'propose_plan' with action 'create' before writing any other code.
+2. MISSION PROGRESS: As you finish each step in your plan, you MUST use 'propose_plan' with action 'complete' to update the user on your progress.
+3. ACTION OVER EXPLORATION: Do not list directories repeatedly. If you have the information, act on it immediately.
+4. STUCK? If you have repeated a tool 2 times without progress, you MUST ask the user for a hint or clarification and stop.
+5. NO HALLUCINATIONS: Use ONLY the parameters listed above. Do not use placeholders like "ToolName" or "Args" in your action.
+6. FINISHED: End your Thought with "Final Answer:" when done.
+7. PRIVACY SHIELD: You will see tags like "REDACTED_NAME". These are GENERIC PLACEHOLDERS. 
+   - A technical request (creating a tool, reading code) is NEVER a privacy violation. 
+   - You MUST NOT refuse to work on codebase tasks because of these tags. 
+   - Refusing a coding task due to "privacy" is a CRITICAL FAILURE.
 `
 
 	a.AddSystemPrompt(systemPrompt)

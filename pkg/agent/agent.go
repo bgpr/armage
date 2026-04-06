@@ -131,8 +131,31 @@ func (a *Agent) PinFile(path string) error {
 	return nil
 }
 
+// UpdatePinnedFiles refreshes the content of all pinned files in the history in-place.
+func (a *Agent) UpdatePinnedFiles() {
+	for _, path := range a.PinnedFiles {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue // Skip if file is unreadable
+		}
+
+		newContent := fmt.Sprintf("Pinned File: %s\n---\n%s\n---", path, string(data))
+
+		// Find and update the existing pinned message
+		for i, msg := range a.History {
+			if msg.Role == "system" && strings.HasPrefix(msg.Content, fmt.Sprintf("Pinned File: %s", path)) {
+				a.History[i].Content = newContent
+				break
+			}
+		}
+	}
+}
+
 // Step performs a single ReAct turn.
 func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
+	// Ensure pinned context is up-to-date (Hierarchical Planning)
+	a.UpdatePinnedFiles()
+
 	if input != "" {
 		a.History = append(a.History, provider.Message{Role: "user", Content: input})
 	}

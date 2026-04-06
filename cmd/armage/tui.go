@@ -475,7 +475,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if strings.Contains(strings.ToLower(msg.Thought), "final answer") {
 			m.state = stateIdle
-			m.history = append(m.history, titleStyle.Render("DONE")+" "+timerStyle.Render(fmt.Sprintf("(%v)", m.elapsed.Round(time.Millisecond))))
+			usage := fmt.Sprintf("[%d tokens (P:%d C:%d)]", msg.Usage.TotalTokens, msg.Usage.PromptTokens, msg.Usage.CompletionTokens)
+			m.history = append(m.history, titleStyle.Render("DONE")+" "+timerStyle.Render(fmt.Sprintf("(%v)", m.elapsed.Round(time.Millisecond)))+" "+infoStyle.Render(usage))
 			m.updateViewports(true)
 			break
 		}
@@ -488,6 +489,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.state = stateIdle
+		usage := fmt.Sprintf("[%d tokens (P:%d C:%d)]", msg.Usage.TotalTokens, msg.Usage.PromptTokens, msg.Usage.CompletionTokens)
+		m.history = append(m.history, infoStyle.Render(usage))
 		m.updateViewports(true)
 		break
 
