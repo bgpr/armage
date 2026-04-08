@@ -48,4 +48,20 @@ func TestHierarchicalPlanning(t *testing.T) {
 			t.Errorf("Task 1 not completed: %s", string(data))
 		}
 	})
+
+	t.Run("CompleteTaskRobustness", func(t *testing.T) {
+		// Reset Task 1 to pending first
+		os.WriteFile("PLAN.md", []byte("# Project Plan\n- [ ] Task 1"), 0644)
+		
+		// Model hallucination: uses 'plan' key instead of 'task'
+		args := `{"action": "complete", "plan": "Task 1"}`
+		_, err := tool.Execute(context.Background(), args)
+		if err != nil {
+			t.Fatalf("Complete failed: %v", err)
+		}
+		data, _ := os.ReadFile("PLAN.md")
+		if !strings.Contains(string(data), "- [x] Task 1") {
+			t.Errorf("Task 1 robustness completion failed: %s", string(data))
+		}
+	})
 }

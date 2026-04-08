@@ -37,6 +37,11 @@ func (p *PlanningTool) Execute(ctx context.Context, args string) (string, error)
 		a.Plan = args
 	}
 
+	// Agent-Proofing: Many models hallucinate 'plan' instead of 'task' for completions
+	if a.Action == "complete" && a.Task == "" && a.Plan != "" {
+		a.Task = a.Plan
+	}
+
 	switch a.Action {
 	case "create":
 		return p.createPlan(a.Plan)
