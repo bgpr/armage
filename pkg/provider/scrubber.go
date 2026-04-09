@@ -235,6 +235,10 @@ func (s *ScrubbingLLM) Model() string {
 	return s.Inner.Model()
 }
 
+func (s *ScrubbingLLM) ContextWindow() int {
+	return s.Inner.ContextWindow()
+}
+
 func (s *ScrubbingLLM) Chat(ctx context.Context, messages []Message) (string, Usage, error) {
 	scrubbedMessages := make([]Message, len(messages))
 	

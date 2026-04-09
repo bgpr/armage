@@ -9417,3 +9417,25 @@ Previous Conversation Summary: {
 {"command": "read_file", "path": "cmd/sys_info/main.go"}
 
 ---END---
+
+--- ORIGINAL ---
+show me the git diff
+--- RAW OUTPUT ---
+---SAFE--- show me the git diff --- 
+---END--- REDACTED_NAME---.git ---END--- REDACTED_EMAIL---.git ---END--- 
+git diff ---END--- REDACTED_KEY---.git ---END---
+
+--- ORIGINAL ---
+Previous Conversation Summary: {
+  "command": "git diff"
+}
+--- RAW OUTPUT ---
+---SAFE--- 
+{ "command": "git diff" }
+---END---
+
+--- ORIGINAL ---
+Previous Conversation Summary: {"command": "git diff"}
+--- RAW OUTPUT ---
+---SAFE--- 
+REDACTED_NAME {"command": "git diff"} ---END

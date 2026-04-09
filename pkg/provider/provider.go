@@ -24,4 +24,5 @@ type Logger func(string)
 type LLM interface {
 	Chat(ctx context.Context, messages []Message) (string, Usage, error)
 	Model() string
+	ContextWindow() int // Returns the maximum context window size in tokens
 }

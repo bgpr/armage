@@ -33,42 +33,46 @@ type StepResult struct {
 
 // Agent is the core orchestrator.
 type Agent struct {
-	LLM             provider.LLM
-	Registry        *Registry
-	History         []provider.Message
-	RequireApproval bool           // Safety Governor flag
-	PendingResult   *StepResult    // Stashed result waiting for approval
-	MaxHistory      int            // Maximum number of messages to keep (0 for unlimited)
-	TotalUsage      provider.Usage // Cumulative token usage
-	PinnedFiles     []string       // List of paths pinned to context
+	LLM              provider.LLM
+	Registry         *Registry
+	History          []provider.Message
+	RequireApproval  bool           // Safety Governor flag
+	PendingResult    *StepResult    // Stashed result waiting for approval
+	MaxHistory       int            // Maximum number of messages to keep (0 for unlimited)
+	MaxContextTokens int            // Threshold to trigger history summarization
+	TotalUsage       provider.Usage // Cumulative token usage
+	PinnedFiles      []string       // List of paths pinned to context
 }
 
 type State struct {
-	History         []provider.Message `json:"history"`
-	RequireApproval bool               `json:"require_approval"`
-	MaxHistory      int                `json:"max_history"`
-	TotalUsage      provider.Usage     `json:"total_usage"`
-	PinnedFiles     []string           `json:"pinned_files"`
+	History          []provider.Message `json:"history"`
+	RequireApproval  bool               `json:"require_approval"`
+	MaxHistory       int                `json:"max_history"`
+	MaxContextTokens int                `json:"max_context_tokens"`
+	TotalUsage       provider.Usage     `json:"total_usage"`
+	PinnedFiles      []string           `json:"pinned_files"`
 }
 
 func New(llm provider.LLM, registry *Registry) *Agent {
 	return &Agent{
-		LLM:         llm,
-		Registry:    registry,
-		History:     []provider.Message{},
-		MaxHistory:  30, 
-		PinnedFiles: []string{},
+		LLM:              llm,
+		Registry:         registry,
+		History:          []provider.Message{},
+		MaxHistory:       20, 
+		MaxContextTokens: 0, // Will be set dynamically from LLM
+		PinnedFiles:      []string{},
 	}
 }
 
 // Save persists the agent's history to disk.
 func (a *Agent) Save(path string) error {
 	state := State{
-		History:         a.History,
-		RequireApproval: a.RequireApproval,
-		MaxHistory:      a.MaxHistory,
-		TotalUsage:      a.TotalUsage,
-		PinnedFiles:     a.PinnedFiles,
+		History:          a.History,
+		RequireApproval:  a.RequireApproval,
+		MaxHistory:       a.MaxHistory,
+		MaxContextTokens: a.MaxContextTokens,
+		TotalUsage:       a.TotalUsage,
+		PinnedFiles:      a.PinnedFiles,
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -90,6 +94,7 @@ func (a *Agent) Load(path string) error {
 	a.History = state.History
 	a.RequireApproval = state.RequireApproval
 	a.MaxHistory = state.MaxHistory
+	a.MaxContextTokens = state.MaxContextTokens
 	a.TotalUsage = state.TotalUsage
 	a.PinnedFiles = state.PinnedFiles
 	return nil
@@ -136,12 +141,11 @@ func (a *Agent) UpdatePinnedFiles() {
 	for _, path := range a.PinnedFiles {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			continue // Skip if file is unreadable
+			continue 
 		}
 
 		newContent := fmt.Sprintf("Pinned File: %s\n---\n%s\n---", path, string(data))
-
-		// Find and update the existing pinned message
+		
 		for i, msg := range a.History {
 			if msg.Role == "system" && strings.HasPrefix(msg.Content, fmt.Sprintf("Pinned File: %s", path)) {
 				a.History[i].Content = newContent
@@ -153,7 +157,6 @@ func (a *Agent) UpdatePinnedFiles() {
 
 // Step performs a single ReAct turn.
 func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
-	// Ensure pinned context is up-to-date (Hierarchical Planning)
 	a.UpdatePinnedFiles()
 
 	if input != "" {
@@ -175,7 +178,6 @@ func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
 	// 2. Parse Response
 	thought, toolCalls, err := Parse(response)
 	if err != nil {
-		// SOTA: Self-Correction
 		if strings.Contains(err.Error(), "malformed action") {
 			nudge := "Error: Your last response contained a malformed Action. Please provide the Action again using valid JSON or the strict 'Action: ToolName(Args)' format."
 			fmt.Printf("\n[Agent] Detected malformed action. Nudging LLM for correction...\n")
@@ -185,7 +187,6 @@ func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
 		return StepResult{Thought: thought, Status: StatusRunning, Usage: usage}, nil
 	}
 
-	// 3. Detect if the agent is stuck (Thought but no Action and no Final Answer)
 	isFinished := strings.Contains(strings.ToLower(thought), "final answer")
 	if len(toolCalls) == 0 && !isFinished {
 		res := StepResult{
@@ -197,7 +198,6 @@ func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
 		return res, nil
 	}
 
-	// Limit to 5 calls per turn
 	if len(toolCalls) > 5 {
 		toolCalls = toolCalls[:5]
 	}
@@ -209,7 +209,6 @@ func (a *Agent) Step(ctx context.Context, input string) (StepResult, error) {
 		Usage:     usage,
 	}
 
-	// 4. Handle Tool Execution with Safety Governor
 	if len(toolCalls) > 0 {
 		if a.RequireApproval {
 			res.Status = StatusPending
@@ -234,7 +233,6 @@ func (a *Agent) StepTransient(ctx context.Context, instruction string) (StepResu
 		return StepResult{}, err
 	}
 
-	// Track usage even for transient steps
 	a.TotalUsage.PromptTokens += usage.PromptTokens
 	a.TotalUsage.CompletionTokens += usage.CompletionTokens
 	a.TotalUsage.TotalTokens += usage.TotalTokens
@@ -253,7 +251,25 @@ func (a *Agent) StepTransient(ctx context.Context, instruction string) (StepResu
 }
 
 func (a *Agent) trimHistory(ctx context.Context) {
-	if a.MaxHistory <= 0 || len(a.History) <= a.MaxHistory {
+	// SOTA: Dynamic Token-Aware Trimming
+	limit := a.LLM.ContextWindow()
+	if limit <= 0 {
+		limit = 4096 // Fallback
+	}
+	
+	// Set threshold at 75% of limit to leave room for the next completion
+	triggerThreshold := int(float64(limit) * 0.75)
+
+	currentChars := 0
+	for _, m := range a.History {
+		currentChars += len(m.Content)
+	}
+	estimatedTokens := currentChars / 3 
+
+	overTurnLimit := a.MaxHistory > 0 && len(a.History) > a.MaxHistory
+	overTokenLimit := estimatedTokens > triggerThreshold
+
+	if !overTurnLimit && !overTokenLimit {
 		return
 	}
 
@@ -266,9 +282,9 @@ func (a *Agent) trimHistory(ctx context.Context) {
 		}
 	}
 
-	keepCount := a.MaxHistory - (prefixCount + 1)
-	if keepCount < 2 {
-		keepCount = 2
+	keepCount := 4 
+	if keepCount > len(a.History)-prefixCount {
+		keepCount = len(a.History) - prefixCount
 	}
 
 	startIdx := len(a.History) - keepCount
@@ -278,23 +294,20 @@ func (a *Agent) trimHistory(ctx context.Context) {
 
 	turnsToSummarize := a.History[prefixCount:startIdx]
 	summary, err := a.summarize(ctx, turnsToSummarize)
-	if err == nil {
+	
+	newHistory := make([]provider.Message, 0, a.MaxHistory+prefixCount)
+	newHistory = append(newHistory, a.History[:prefixCount]...)
+	
+	if err == nil && summary != "" {
 		summaryMsg := provider.Message{
 			Role:    "system",
 			Content: fmt.Sprintf("Previous Conversation Summary: %s", summary),
 		}
-		
-		newHistory := make([]provider.Message, 0, a.MaxHistory)
-		newHistory = append(newHistory, a.History[:prefixCount]...)
 		newHistory = append(newHistory, summaryMsg)
-		newHistory = append(newHistory, a.History[startIdx:]...)
-		a.History = newHistory
-	} else {
-		newHistory := make([]provider.Message, 0, a.MaxHistory)
-		newHistory = append(newHistory, a.History[:prefixCount]...)
-		newHistory = append(newHistory, a.History[startIdx:]...)
-		a.History = newHistory
 	}
+	
+	newHistory = append(newHistory, a.History[startIdx:]...)
+	a.History = newHistory
 }
 
 func (a *Agent) summarize(ctx context.Context, messages []provider.Message) (string, error) {
@@ -303,7 +316,7 @@ func (a *Agent) summarize(ctx context.Context, messages []provider.Message) (str
 	}
 
 	prompt := []provider.Message{
-		{Role: "system", Content: "Summarize the following conversation turns concisely (max 2 sentences). Focus on what was achieved. Do NOT return an empty response. End with 'SUMMARY: [your summary]'."},
+		{Role: "system", Content: "Summarize the following conversation turns VERY concisely (max 1 sentence). Focus only on the final outcome. End with 'SUMMARY: [your summary]'."},
 	}
 	prompt = append(prompt, messages...)
 

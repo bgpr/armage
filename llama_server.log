@@ -18369,3 +18369,48 @@ prompt eval time =     573.47 ms /    23 tokens (   24.93 ms per token,    40.11
 slot      release: id  3 | task 16143 | stop processing: n_tokens = 136, truncated = 0
 srv  update_slots: all slots are idle
 srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200
+srv  params_from_: Chat format: peg-native
+slot get_availabl: id  2 | task -1 | selected slot by LCP similarity, sim_best = 0.935 (> 0.100 thold), f_keep = 0.845
+slot launch_slot_: id  2 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+slot launch_slot_: id  2 | task 16169 | processing task, is_child = 0
+slot update_slots: id  2 | task 16169 | new prompt, n_ctx_slot = 131072, n_keep = 0, task.n_tokens = 93
+slot update_slots: id  2 | task 16169 | n_tokens = 87, memory_seq_rm [87, end)
+slot init_sampler: id  2 | task 16169 | init sampler, took 0.04 ms, tokens: text = 93, total = 93
+slot update_slots: id  2 | task 16169 | prompt processing done, n_tokens = 93, batch.n_tokens = 6
+slot print_timing: id  2 | task 16169 | 
+prompt eval time =     328.66 ms /     6 tokens (   54.78 ms per token,    18.26 tokens per second)
+       eval time =    1642.46 ms /    50 tokens (   32.85 ms per token,    30.44 tokens per second)
+      total time =    1971.12 ms /    56 tokens
+slot      release: id  2 | task 16169 | stop processing: n_tokens = 142, truncated = 0
+srv  update_slots: all slots are idle
+srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200
+srv  params_from_: Chat format: peg-native
+slot get_availabl: id  3 | task -1 | selected slot by LCP similarity, sim_best = 0.912 (> 0.100 thold), f_keep = 0.684
+slot launch_slot_: id  3 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+slot launch_slot_: id  3 | task 16220 | processing task, is_child = 0
+slot update_slots: id  3 | task 16220 | new prompt, n_ctx_slot = 131072, n_keep = 0, task.n_tokens = 102
+slot update_slots: id  3 | task 16220 | n_tokens = 93, memory_seq_rm [93, end)
+slot init_sampler: id  3 | task 16220 | init sampler, took 0.16 ms, tokens: text = 102, total = 102
+slot update_slots: id  3 | task 16220 | prompt processing done, n_tokens = 102, batch.n_tokens = 9
+slot print_timing: id  3 | task 16220 | 
+prompt eval time =     112.66 ms /     9 tokens (   12.52 ms per token,    79.88 tokens per second)
+       eval time =     528.35 ms /    17 tokens (   31.08 ms per token,    32.18 tokens per second)
+      total time =     641.01 ms /    26 tokens
+slot      release: id  3 | task 16220 | stop processing: n_tokens = 118, truncated = 0
+srv  update_slots: all slots are idle
+srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200
+srv  params_from_: Chat format: peg-native
+slot get_availabl: id  3 | task -1 | selected slot by LCP similarity, sim_best = 0.879 (> 0.100 thold), f_keep = 0.737
+slot launch_slot_: id  3 | task -1 | sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+slot launch_slot_: id  3 | task 16238 | processing task, is_child = 0
+slot update_slots: id  3 | task 16238 | new prompt, n_ctx_slot = 131072, n_keep = 0, task.n_tokens = 99
+slot update_slots: id  3 | task 16238 | n_tokens = 87, memory_seq_rm [87, end)
+slot init_sampler: id  3 | task 16238 | init sampler, took 0.17 ms, tokens: text = 99, total = 99
+slot update_slots: id  3 | task 16238 | prompt processing done, n_tokens = 99, batch.n_tokens = 12
+slot print_timing: id  3 | task 16238 | 
+prompt eval time =     278.04 ms /    12 tokens (   23.17 ms per token,    43.16 tokens per second)
+       eval time =     565.15 ms /    18 tokens (   31.40 ms per token,    31.85 tokens per second)
+      total time =     843.19 ms /    30 tokens
+slot      release: id  3 | task 16238 | stop processing: n_tokens = 116, truncated = 0
+srv  update_slots: all slots are idle
+srv  log_server_r: done request: POST /v1/chat/completions 127.0.0.1 200

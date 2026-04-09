@@ -19,6 +19,7 @@ type OpenRouter struct {
 	BaseURL        string
 	ModelsURL      string 
 	FallbackModels []string
+	ModelMetadata  map[string]int // Map of model ID to context_length
 	currentIdx     int
 	Logger         Logger // Added for TUI-safe logging
 	HTTPClient     *http.Client
@@ -30,13 +31,14 @@ func NewOpenRouter(apiKey, model string) *OpenRouter {
 		CurrentModel: model,
 		BaseURL:      defaultOpenRouterURL,
 		ModelsURL:    modelsURL,
+		ModelMetadata: make(map[string]int),
 		HTTPClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
 	}
 }
 
-// FetchFreeModels programmatically finds all 0-cost models.
+// FetchFreeModels programmatically finds all 0-cost models and their context limits.
 func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", o.ModelsURL, nil)
 	if err != nil {
@@ -51,8 +53,9 @@ func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
 
 	var res struct {
 		Data []struct {
-			ID      string `json:"id"`
-			Pricing struct {
+			ID            string `json:"id"`
+			ContextLength int    `json:"context_length"`
+			Pricing       struct {
 				Prompt     string `json:"prompt"`
 				Completion string `json:"completion"`
 				Request    string `json:"request"`
@@ -68,6 +71,9 @@ func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
 	blacklist := []string{"1b", "0.5b", "phi-3-mini", "tiny", "tinyllama"}
 
 	for _, m := range res.Data {
+		// Store context length for ALL models we see
+		o.ModelMetadata[m.ID] = m.ContextLength
+
 		if m.Pricing.Prompt == "0" && m.Pricing.Completion == "0" && strings.HasSuffix(m.ID, ":free") {
 			isBlacklisted := false
 			lowered := strings.ToLower(m.ID)
@@ -92,6 +98,13 @@ func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
 
 	o.FallbackModels = free
 	return free, nil
+}
+
+func (o *OpenRouter) ContextWindow() int {
+	if limit, ok := o.ModelMetadata[o.CurrentModel]; ok && limit > 0 {
+		return limit
+	}
+	return 4096 // Absolute fallback
 }
 
 type openRouterRequest struct {
