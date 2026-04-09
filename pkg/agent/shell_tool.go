@@ -36,9 +36,9 @@ func (t *ShellTool) Execute(ctx context.Context, args string) (string, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("shell error: %w", err)
+		return Truncate(string(out), 5000), fmt.Errorf("shell error: %w", err)
 	}
-	return string(out), nil
+	return Truncate(string(out), 5000), nil
 }
 
 func (t *ShellTool) Preview(ctx context.Context, args string) (string, error) {

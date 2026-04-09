@@ -488,11 +488,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.history = append(m.history, actionStyle.Render(fmt.Sprintf("⚙️ Action: %s(%s)", tc.Name, tc.Args)))
 		}
 
-		if len(m.agent.History) > 0 {
-			last := m.agent.History[len(m.agent.History)-1]
-			if strings.HasPrefix(last.Content, "Observations:") {
-				m.history = append(m.history, m.renderMarkdown(last.Content))
-			}
+		if msg.Observations != "" {
+			m.history = append(m.history, m.renderMarkdown(msg.Observations))
 		}
 
 		if m.statePath != "" { m.agent.Save(m.statePath) }

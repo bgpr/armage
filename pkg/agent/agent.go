@@ -25,10 +25,11 @@ type ToolCall struct {
 
 // StepResult contains the outcome of a single turn.
 type StepResult struct {
-	Thought   string         `json:"thought"`
-	Status    AgentStatus    `json:"status"`
-	ToolCalls []ToolCall     `json:"tool_calls,omitempty"`
-	Usage     provider.Usage `json:"usage"`
+	Thought      string         `json:"thought"`
+	Status       AgentStatus    `json:"status"`
+	ToolCalls    []ToolCall     `json:"tool_calls,omitempty"`
+	Observations string         `json:"observations,omitempty"`
+	Usage        provider.Usage `json:"usage"`
 }
 
 // Agent is the core orchestrator.
@@ -59,7 +60,7 @@ func New(llm provider.LLM, registry *Registry) *Agent {
 		Registry:         registry,
 		History:          []provider.Message{},
 		MaxHistory:       20, 
-		MaxContextTokens: 0, // Will be set dynamically from LLM
+		MaxContextTokens: 0, 
 		PinnedFiles:      []string{},
 	}
 }
@@ -251,13 +252,11 @@ func (a *Agent) StepTransient(ctx context.Context, instruction string) (StepResu
 }
 
 func (a *Agent) trimHistory(ctx context.Context) {
-	// SOTA: Dynamic Token-Aware Trimming
 	limit := a.LLM.ContextWindow()
 	if limit <= 0 {
-		limit = 4096 // Fallback
+		limit = 4096 
 	}
 	
-	// Set threshold at 75% of limit to leave room for the next completion
 	triggerThreshold := int(float64(limit) * 0.75)
 
 	currentChars := 0
@@ -364,7 +363,8 @@ func (a *Agent) ExecuteTools(ctx context.Context, res StepResult) (StepResult, e
 	}
 
 	fullObservation := strings.Join(observations, "\n\n")
-	a.History = append(a.History, provider.Message{Role: "user", Content: "Observations:\n" + fullObservation})
+	res.Observations = "Observations:\n" + fullObservation
+	a.History = append(a.History, provider.Message{Role: "user", Content: res.Observations})
 
 	res.Status = StatusRunning
 	return res, nil
