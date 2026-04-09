@@ -26,6 +26,9 @@ func TestToolMeta(t *testing.T) {
 		if tool.Description() == "" {
 			t.Errorf("Tool %T has empty description", tool)
 		}
+		if _, err := tool.Preview(context.Background(), ""); err != nil {
+			t.Errorf("Tool %T Preview failed: %v", tool, err)
+		}
 	}
 }
 
@@ -35,4 +38,7 @@ func (t *MockTool) Name() string { return "echo" }
 func (t *MockTool) Description() string { return "echos args" }
 func (t *MockTool) Execute(ctx context.Context, args string) (string, error) {
 	return args, nil
+}
+func (t *MockTool) Preview(ctx context.Context, args string) (string, error) {
+	return "Mock: " + args, nil
 }

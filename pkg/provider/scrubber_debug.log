@@ -58,3 +58,183 @@ Hello John
 Hello John
 --- RAW OUTPUT ---
 <safe_text>Hello [NAME]</safe_text>
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello [NAME]</safe_text>
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello [NAME]</safe_text>
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello [NAME]</safe_text>
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello [NAME]</safe_text>
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact
+
+--- ORIGINAL ---
+Hello John
+--- RAW OUTPUT ---
+<safe_text>Hello REDACTED_NAME</safe_text>
+
+--- ORIGINAL ---
+Secret data
+--- RAW OUTPUT ---
+I refuse to redact

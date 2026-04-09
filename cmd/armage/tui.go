@@ -127,6 +127,7 @@ type model struct {
 	scrubberOn     bool
 	logChan        chan string
 	pendingActions []agent.ToolCall
+	pendingDiffs   []string
 	autoTurns      int
 	focusMode      bool
 	inputHistory   []string
@@ -183,6 +184,11 @@ func newModel(a *agent.Agent, statePath, systemPrompt string) model {
 
 func (m model) renderMarkdown(text string) string {
 	if m.renderer == nil {
+		return text
+	}
+	// PERFORMANCE GUARD: Bypassing markdown rendering for large blocks (>5000 chars) 
+	// prevents TUI freezes on mobile CPUs.
+	if len(text) > 5000 {
 		return text
 	}
 	out, _ := m.renderer.Render(text)
@@ -484,6 +490,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Status == agent.StatusPending {
 			m.state = statePendingApproval
 			m.pendingActions = msg.ToolCalls
+			m.pendingDiffs = make([]string, len(msg.ToolCalls))
+			for i, tc := range msg.ToolCalls {
+				if tool, ok := m.agent.Registry.Get(tc.Name); ok {
+					diff, _ := tool.Preview(context.Background(), tc.Args)
+					m.pendingDiffs[i] = diff
+				}
+			}
 			m.updateViewports(true)
 			break
 		}
@@ -690,7 +703,19 @@ func (m model) View() string {
 	if m.state == statePendingApproval {
 		var tools string
 		for i, tc := range m.pendingActions {
-			tools += fmt.Sprintf("%d. %s(%s)\n", i+1, actionStyle.Render(tc.Name), tc.Args)
+			diff := m.pendingDiffs[i]
+			// Style the diff lines
+			lines := strings.Split(diff, "\n")
+			for j, line := range lines {
+				if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+					lines[j] = lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Render(line)
+				} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+					lines[j] = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Render(line)
+				}
+			}
+			styledDiff := strings.Join(lines, "\n")
+			
+			tools += fmt.Sprintf("%d. %s(%s)\n%s\n\n", i+1, actionStyle.Render(tc.Name), tc.Args, styledDiff)
 		}
 		approvalPanel = approvalStyle.Render(fmt.Sprintf("%s\n%s\n%s", 
 			lipgloss.NewStyle().Bold(true).Render("Pending Actions:"),

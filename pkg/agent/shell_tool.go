@@ -40,3 +40,11 @@ func (t *ShellTool) Execute(ctx context.Context, args string) (string, error) {
 	}
 	return string(out), nil
 }
+
+func (t *ShellTool) Preview(ctx context.Context, args string) (string, error) {
+	var a shellArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		a.Command = args
+	}
+	return fmt.Sprintf("Execute shell command: %s", a.Command), nil
+}

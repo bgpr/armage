@@ -55,5 +55,13 @@ func (t *ReadTool) Execute(ctx context.Context, args string) (string, error) {
 		return "", err
 	}
 
-	return strings.Join(lines, "\n"), nil
+	return Truncate(strings.Join(lines, "\n"), 5000), nil
+}
+
+func (t *ReadTool) Preview(ctx context.Context, args string) (string, error) {
+	var a readArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		a.Path = strings.Trim(args, "\"'")
+	}
+	return fmt.Sprintf("Read file: %s", a.Path), nil
 }

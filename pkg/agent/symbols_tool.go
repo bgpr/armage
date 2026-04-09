@@ -66,3 +66,11 @@ func (t *SymbolsTool) Execute(ctx context.Context, args string) (string, error) 
 
 	return strings.Join(symbols, "\n"), nil
 }
+
+func (t *SymbolsTool) Preview(ctx context.Context, args string) (string, error) {
+	var a symbolsArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		a.Path = strings.Trim(args, "\"'")
+	}
+	return fmt.Sprintf("Get symbols from: %s", a.Path), nil
+}

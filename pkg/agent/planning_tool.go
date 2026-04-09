@@ -121,3 +121,15 @@ func (p *PlanningTool) completeTask(task string) (string, error) {
 
 	return fmt.Sprintf("Task completed: %s", task), nil
 }
+
+func (p *PlanningTool) Preview(ctx context.Context, args string) (string, error) {
+	var a planningArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		a.Action = "create"
+		a.Plan = args
+	}
+	if a.Action == "complete" && a.Task == "" && a.Plan != "" {
+		a.Task = a.Plan
+	}
+	return fmt.Sprintf("Update PLAN.md (Action: %s)", a.Action), nil
+}

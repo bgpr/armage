@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -31,29 +32,52 @@ func (w *WriteTool) Execute(ctx context.Context, args string) (string, error) {
 		return "", fmt.Errorf("path is required for write_file")
 	}
 
-	// 1. Explicit check for directory existence
 	dir := filepath.Dir(a.Path)
 	if dir != "." {
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			// Directory doesn't exist, create it safely
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
 			}
 		}
 	}
 
-	// 2. Atomic write: Write to .tmp first to prevent corruption
 	tmpPath := a.Path + ".tmp"
 	if err := os.WriteFile(tmpPath, []byte(a.Content), 0644); err != nil {
 		return "", fmt.Errorf("failed to write temp file: %w", err)
 	}
 
-	// 3. Move .tmp to target (Atomic Move)
 	if err := os.Rename(tmpPath, a.Path); err != nil {
-		// Cleanup tmp on failure
 		os.Remove(tmpPath)
 		return "", fmt.Errorf("failed to finalize write (atomic move failed): %w", err)
 	}
 
 	return fmt.Sprintf("Successfully wrote to %s", a.Path), nil
+}
+
+func (w *WriteTool) Preview(ctx context.Context, args string) (string, error) {
+	var a writeArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		return "", err
+	}
+
+	// 1. If file doesn't exist, the preview is just the full content
+	if _, err := os.Stat(a.Path); os.IsNotExist(err) {
+		return fmt.Sprintf("New file: %s\n---\n%s", a.Path, a.Content), nil
+	}
+
+	// 2. Use 'diff' command for existing files
+	tmpPath := a.Path + ".new.tmp"
+	if err := os.WriteFile(tmpPath, []byte(a.Content), 0644); err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpPath)
+
+	cmd := exec.CommandContext(ctx, "diff", "-u", a.Path, tmpPath)
+	out, _ := cmd.Output() // diff returns non-zero if files differ, ignore err
+	
+	if len(out) == 0 {
+		return "No changes.", nil
+	}
+
+	return string(out), nil
 }

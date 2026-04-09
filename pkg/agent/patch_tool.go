@@ -49,3 +49,11 @@ func (p *ApplyPatchTool) Execute(ctx context.Context, args string) (string, erro
 
 	return fmt.Sprintf("Successfully applied patch to %s:\n%s", a.Path, string(output)), nil
 }
+
+func (p *ApplyPatchTool) Preview(ctx context.Context, args string) (string, error) {
+	var a patchArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		return "", err
+	}
+	return a.Patch, nil
+}

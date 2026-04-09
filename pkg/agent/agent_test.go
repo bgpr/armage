@@ -210,3 +210,6 @@ func (t *ErrorTool) Description() string { return "failing tool" }
 func (t *ErrorTool) Execute(ctx context.Context, args string) (string, error) {
 	return "", os.ErrPermission
 }
+func (t *ErrorTool) Preview(ctx context.Context, args string) (string, error) {
+	return "Preview Error", nil
+}

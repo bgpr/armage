@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -37,15 +38,12 @@ func (d *DiffTool) Execute(ctx context.Context, args string) (string, error) {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Important: The LLM might have trouble with exact whitespace in the 'find' block.
-	// We do an exact match first.
 	if !strings.Contains(string(content), a.Find) {
 		return "", fmt.Errorf("the 'find' block was not found exactly as provided in %s. Check whitespace and line numbers", a.Path)
 	}
 
 	newContent := strings.Replace(string(content), a.Find, a.Replace, 1)
 	
-	// Use atomic write logic
 	tmpPath := a.Path + ".tmp"
 	if err := os.WriteFile(tmpPath, []byte(newContent), 0644); err != nil {
 		return "", err
@@ -56,4 +54,37 @@ func (d *DiffTool) Execute(ctx context.Context, args string) (string, error) {
 	}
 
 	return fmt.Sprintf("Successfully updated %s", a.Path), nil
+}
+
+func (d *DiffTool) Preview(ctx context.Context, args string) (string, error) {
+	var a diffArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		return "", err
+	}
+
+	content, err := os.ReadFile(a.Path)
+	if err != nil {
+		return "", err
+	}
+
+	if !strings.Contains(string(content), a.Find) {
+		return fmt.Sprintf("Diff (PREVIEW ERROR): 'find' block not found in %s", a.Path), nil
+	}
+
+	newContent := strings.Replace(string(content), a.Find, a.Replace, 1)
+	
+	tmpPath := a.Path + ".diff.tmp"
+	if err := os.WriteFile(tmpPath, []byte(newContent), 0644); err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpPath)
+
+	cmd := exec.CommandContext(ctx, "diff", "-u", a.Path, tmpPath)
+	out, _ := cmd.Output()
+	
+	if len(out) == 0 {
+		return "No changes.", nil
+	}
+
+	return string(out), nil
 }

@@ -21,6 +21,7 @@ type OpenRouter struct {
 	FallbackModels []string
 	currentIdx     int
 	Logger         Logger // Added for TUI-safe logging
+	HTTPClient     *http.Client
 }
 
 func NewOpenRouter(apiKey, model string) *OpenRouter {
@@ -29,6 +30,9 @@ func NewOpenRouter(apiKey, model string) *OpenRouter {
 		CurrentModel: model,
 		BaseURL:      defaultOpenRouterURL,
 		ModelsURL:    modelsURL,
+		HTTPClient: &http.Client{
+			Timeout: 60 * time.Second,
+		},
 	}
 }
 
@@ -39,7 +43,7 @@ func (o *OpenRouter) FetchFreeModels(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := o.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -134,10 +138,12 @@ func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usag
 			lastErr = err
 			errStr := strings.ToLower(err.Error())
 
-			if strings.Contains(errStr, "429") || strings.Contains(errStr, "403") {
+			if strings.Contains(errStr, "429") || strings.Contains(errStr, "403") || strings.Contains(errStr, "timeout") {
 				reason := "Rate Limited"
 				if strings.Contains(errStr, "403") {
 					reason = "Provider Error"
+				} else if strings.Contains(errStr, "timeout") {
+					reason = "Timeout"
 				}
 				msg := fmt.Sprintf("[%s on %s] Retrying in %v... (Attempt %d/3)", reason, currentModel, delay, retry+1)
 				if o.Logger != nil {
@@ -156,7 +162,7 @@ func (o *OpenRouter) Chat(ctx context.Context, messages []Message) (string, Usag
 		}
 
 		errStr := strings.ToLower(lastErr.Error())
-		if (strings.Contains(errStr, "429") || strings.Contains(errStr, "403")) && i < len(modelsToTry)-1 {
+		if (strings.Contains(errStr, "429") || strings.Contains(errStr, "403") || strings.Contains(errStr, "timeout")) && i < len(modelsToTry)-1 {
 			msg := fmt.Sprintf("[Model Switch] Rotating from %s due to persistent error.", currentModel)
 			if o.Logger != nil {
 				o.Logger(msg)
@@ -213,7 +219,7 @@ func (o *OpenRouter) doRequest(ctx context.Context, messages []Message) (string,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+o.APIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := o.HTTPClient.Do(req)
 	if err != nil {
 		return "", Usage{}, err
 	}

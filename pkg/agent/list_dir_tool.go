@@ -79,5 +79,16 @@ func (t *ListDirTool) Execute(ctx context.Context, args string) (string, error) 
 		return "", err
 	}
 
-	return strings.TrimSpace(result.String()), nil
+	return Truncate(strings.TrimSpace(result.String()), 5000), nil
+}
+
+func (t *ListDirTool) Preview(ctx context.Context, args string) (string, error) {
+	var a listDirArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		a.Path = strings.Trim(args, "\"'")
+	}
+	if a.Path == "" {
+		a.Path = "."
+	}
+	return fmt.Sprintf("List directory: %s", a.Path), nil
 }

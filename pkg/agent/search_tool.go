@@ -44,11 +44,14 @@ func (t *SearchTool) Execute(ctx context.Context, args string) (string, error) {
 		return "No matches found.", nil
 	}
 
-	// Limit output to prevent context bloat
-	lines := strings.Split(result, "\n")
-	if len(lines) > 100 {
-		result = strings.Join(lines[:100], "\n") + "\n... (truncated)"
-	}
+	return Truncate(result, 5000), nil
+}
 
-	return result, nil
+func (t *SearchTool) Preview(ctx context.Context, args string) (string, error) {
+	var a searchArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		a.Pattern = strings.Trim(args, "\"'")
+		a.Path = "."
+	}
+	return fmt.Sprintf("Search for '%s' in %s", a.Pattern, a.Path), nil
 }

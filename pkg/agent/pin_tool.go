@@ -42,3 +42,11 @@ func (p *PinTool) Execute(ctx context.Context, args string) (string, error) {
 
 	return fmt.Sprintf("Successfully pinned %s to context.", a.Path), nil
 }
+
+func (p *PinTool) Preview(ctx context.Context, args string) (string, error) {
+	var a pinArgs
+	if err := json.Unmarshal([]byte(args), &a); err != nil {
+		a.Path = args
+	}
+	return fmt.Sprintf("Pin file to context: %s", a.Path), nil
+}
