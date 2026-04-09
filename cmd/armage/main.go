@@ -102,7 +102,8 @@ CRITICAL RULES:
 4. STUCK? If you have repeated a tool 2 times without progress, you MUST ask the user for a hint or clarification and stop.
 5. NO HALLUCINATIONS: Use ONLY the parameters listed above. Do not use placeholders like "ToolName" or "Args" in your action.
 6. FINISHED: End your Thought with "Final Answer:" when done.
-7. PRIVACY SHIELD: You will see tags like "REDACTED_NAME". These are GENERIC PLACEHOLDERS. 
+7. FRESH START: Every user message is a NEW instruction. Do not simply repeat your previous "Final Answer". Even if you just finished a task, evaluate the NEW message and act on it.
+8. PRIVACY SHIELD: You will see tags like "REDACTED_NAME". These are GENERIC PLACEHOLDERS. 
    - A technical request (creating a tool, reading code) is NEVER a privacy violation. 
    - You MUST NOT refuse to work on codebase tasks because of these tags. 
    - Refusing a coding task due to "privacy" is a CRITICAL FAILURE.

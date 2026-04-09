@@ -24,18 +24,29 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 			depth := 0
 			end := -1
 			for j := i; j < len(trimmedInput); j++ {
-				if trimmedInput[j] == '{' { depth++ } else if trimmedInput[j] == '}' {
+				if trimmedInput[j] == '{' {
+					depth++
+				} else if trimmedInput[j] == '}' {
 					depth--
-					if depth == 0 { end = j; break }
+					if depth == 0 {
+						end = j
+						break
+					}
 				}
 			}
 			if end != -1 {
 				jsonBlock := trimmedInput[i : end+1]
 				var raw map[string]interface{}
 				if err := json.Unmarshal([]byte(jsonBlock), &raw); err == nil {
-					if t, ok := raw["thought"].(string); ok { thought += t + " " }
-					if t, ok := raw["Thought"].(string); ok { thought += t + " " }
-					
+					// Extract Thought if present
+					if t, ok := raw["thought"].(string); ok {
+						thought += t + " "
+					}
+					if t, ok := raw["Thought"].(string); ok {
+						thought += t + " "
+					}
+
+					// Standard Tool Calls (OpenAI/OpenRouter format)
 					if tcRaw, ok := raw["tool_calls"].([]interface{}); ok {
 						for _, item := range tcRaw {
 							if m, ok := item.(map[string]interface{}); ok {
@@ -48,18 +59,33 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 						}
 					}
 
+					// SOTA: Prefix-Agnostic Parsing
+					// If the block has "command", "path", "pattern", etc., but NO tool name, infer it.
+					if _, ok := raw["command"]; ok {
+						toolCalls = append(toolCalls, ToolCall{Name: "shell", Args: jsonBlock})
+					} else if p, ok := raw["path"].(string); ok {
+						name := "list_dir"
+						if _, ok := raw["pattern"]; ok {
+							name = "grep_search"
+						} else if _, ok := raw["content"]; ok {
+							name = "write_file"
+						} else if strings.HasSuffix(p, ".go") || strings.HasSuffix(p, ".py") {
+							// If they just send a path to a code file, assume read or symbols
+							name = "read_file"
+						}
+						toolCalls = append(toolCalls, ToolCall{Name: name, Args: jsonBlock})
+					} else if _, ok := raw["action"]; ok {
+						// Likely a propose_plan call
+						toolCalls = append(toolCalls, ToolCall{Name: "propose_plan", Args: jsonBlock})
+					}
+
+					// Handle "Action" as a key (Nemotron style)
 					if actRaw, ok := raw["Action"].(string); ok {
 						_, innerCalls, _ := Parse("Action: " + actRaw)
 						toolCalls = append(toolCalls, innerCalls...)
-					} else if actMap, ok := raw["Action"].(map[string]interface{}); ok {
-						argsBytes, _ := json.Marshal(actMap)
-						name := "shell"
-						if _, ok := actMap["path"]; ok { name = "list_dir" }
-						if _, ok := actMap["pattern"]; ok { name = "grep_search" }
-						toolCalls = append(toolCalls, ToolCall{Name: name, Args: string(argsBytes)})
 					}
 				}
-				i = end 
+				i = end
 			}
 		}
 	}
@@ -76,14 +102,29 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 				toolName := strings.TrimSpace(actionPart[:openParenIdx])
 				depth, closingParenIdx := 0, -1
 				for i := openParenIdx; i < len(actionPart); i++ {
-					if actionPart[i] == '(' { depth++ } else if actionPart[i] == ')' {
+					if actionPart[i] == '(' {
+						depth++
+					} else if actionPart[i] == ')' {
 						depth--
-						if depth == 0 { closingParenIdx = i; break }
+						if depth == 0 {
+							closingParenIdx = i
+							break
+						}
 					}
 				}
 				if closingParenIdx > openParenIdx {
 					args := actionPart[openParenIdx+1 : closingParenIdx]
-					toolCalls = append(toolCalls, ToolCall{Name: toolName, Args: strings.TrimSpace(args)})
+					// Prevent duplicates if already parsed via JSON
+					alreadyParsed := false
+					for _, existing := range toolCalls {
+						if existing.Name == toolName && existing.Args == strings.TrimSpace(args) {
+							alreadyParsed = true
+							break
+						}
+					}
+					if !alreadyParsed {
+						toolCalls = append(toolCalls, ToolCall{Name: toolName, Args: strings.TrimSpace(args)})
+					}
 				}
 			}
 		}
@@ -99,7 +140,9 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 			params := make(map[string]interface{})
 			paramMatches := xmlParamRegex.FindAllStringSubmatch(content, -1)
 			for _, pm := range paramMatches {
-				if len(pm) > 2 { params[pm[1]] = strings.TrimSpace(pm[2]) }
+				if len(pm) > 2 {
+					params[pm[1]] = strings.TrimSpace(pm[2])
+				}
 			}
 			argsJSON, _ := json.Marshal(params)
 			toolCalls = append(toolCalls, ToolCall{Name: funcName, Args: strings.TrimSpace(string(argsJSON))})
@@ -114,17 +157,19 @@ func Parse(input string) (thought string, toolCalls []ToolCall, err error) {
 		}
 	}
 
-	// 4. DETECT MALFORMED ATTEMPTS (Self-Correction Trigger)
+	// 5. DETECT MALFORMED ATTEMPTS (Self-Correction Trigger)
 	if len(toolCalls) == 0 {
-		// If we see "Action" or "tool_calls" but didn't parse anything, it's malformed
 		lower := strings.ToLower(input)
-		if strings.Contains(lower, "action") || strings.Contains(lower, "tool_call") {
-			return stripInstructions(strings.TrimSpace(thought)), nil, fmt.Errorf("malformed action detected")
+		if strings.Contains(lower, "action") || strings.Contains(lower, "tool_call") || (strings.Contains(lower, "{") && strings.Contains(lower, "}")) {
+			// Only trigger error if we actually suspect they TRIED to call a tool
+			if strings.Contains(lower, "command") || strings.Contains(lower, "path") || strings.Contains(lower, "(") {
+				return stripInstructions(strings.TrimSpace(thought)), nil, fmt.Errorf("malformed action detected")
+			}
 		}
 	}
 
-	if thought == "" && len(toolCalls) == 0 { 
-		thought = input 
+	if thought == "" && len(toolCalls) == 0 {
+		thought = input
 	}
 
 	return stripInstructions(strings.TrimSpace(thought)), toolCalls, nil
@@ -136,7 +181,7 @@ func stripInstructions(text string) string {
 		"Action: ToolName([JSON Arguments])",
 		"Thought: [Your detailed reasoning",
 		"Thought: ",
-		"```json", "```", 
+		"```json", "```",
 	}
 	clean := text
 	for _, p := range placeholders {

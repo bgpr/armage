@@ -378,9 +378,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if m.state == statePendingApproval {
 				m.history = append(m.history, infoStyle.Render("Approved."))
+				
+				// Persist diffs to history
+				for i := range m.pendingActions {
+					diff := m.pendingDiffs[i]
+					if diff != "" && diff != "No changes." {
+						lines := strings.Split(diff, "\n")
+						for j, line := range lines {
+							if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+								lines[j] = lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Render(line)
+							} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+								lines[j] = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Render(line)
+							}
+						}
+						m.history = append(m.history, strings.Join(lines, "\n"))
+					}
+				}
+
 				m.state = stateThinking
 				m.startTime = time.Now()
 				m.pendingActions = nil
+				m.pendingDiffs = nil
 				m.err = nil
 				return m, runApprove(m.agent)
 			}
