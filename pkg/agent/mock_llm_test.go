@@ -16,6 +16,10 @@ func (m *MockMultiStepLLM) Model() string {
 	return "mock-model"
 }
 
+func (m *MockMultiStepLLM) ContextWindow() int {
+	return 4096
+}
+
 func (m *MockMultiStepLLM) Chat(ctx context.Context, messages []provider.Message) (string, provider.Usage, error) {
 	m.LastMessages = messages
 	if m.Turn >= len(m.Responses) {

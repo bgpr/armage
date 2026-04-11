@@ -17,6 +17,10 @@ func (m *MockLLM) Model() string {
 	return "mock-model"
 }
 
+func (m *MockLLM) ContextWindow() int {
+	return 4096
+}
+
 func (m *MockLLM) Chat(ctx context.Context, messages []provider.Message) (string, provider.Usage, error) {
 	if len(messages) > 0 && messages[0].Role == "system" && strings.Contains(messages[0].Content, "Summarize") {
 		return "SUMMARY: All good", provider.Usage{TotalTokens: 10}, nil

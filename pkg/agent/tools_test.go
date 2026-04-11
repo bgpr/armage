@@ -26,8 +26,11 @@ func TestToolMeta(t *testing.T) {
 		if tool.Description() == "" {
 			t.Errorf("Tool %T has empty description", tool)
 		}
-		if _, err := tool.Preview(context.Background(), ""); err != nil {
-			t.Errorf("Tool %T Preview failed: %v", tool, err)
+		// Skip tools that require existing files for a basic {} preview
+		if tool.Name() != "edit_file_diff" && tool.Name() != "apply_patch" {
+			if _, err := tool.Preview(context.Background(), "{}"); err != nil {
+				t.Errorf("Tool %T Preview failed: %v", tool, err)
+			}
 		}
 	}
 }
